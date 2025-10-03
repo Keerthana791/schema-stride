@@ -12,6 +12,8 @@ import {
   Menu
 } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 interface LayoutProps {
   children: ReactNode;
@@ -20,6 +22,8 @@ interface LayoutProps {
 const Layout = ({ children }: LayoutProps) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const { logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navItems = [
@@ -31,8 +35,12 @@ const Layout = ({ children }: LayoutProps) => {
     { path: "/notifications", icon: Bell, label: "Notifications" },
   ];
 
-  const handleLogout = () => {
-    // TODO: Implement actual logout logic with Supabase
+  const handleLogout = async () => {
+    await logout();
+    toast({
+      title: "Logged out",
+      description: "You have been logged out successfully",
+    });
     navigate("/login");
   };
 

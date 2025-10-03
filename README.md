@@ -1,8 +1,92 @@
-# Welcome to your Lovable project
+# Engineering LMS - Multi-tenant Learning Management System
+
+A modern, multi-tenant Learning Management System built with React, TypeScript, and Tailwind CSS.
 
 ## Project info
 
 **URL**: https://lovable.dev/projects/6b430513-85d0-4880-8649-9f57e71fa68a
+
+## Backend Integration
+
+This application is configured to connect to an external backend API. You need to provide your own backend server.
+
+### Backend Requirements
+
+Your backend should implement the following endpoints:
+
+#### Authentication
+- `POST /api/auth/login` - User login
+  - Body: `{ email, password }`
+  - Returns: `{ user: { id, email, name, role, tenantId }, accessToken, refreshToken? }`
+  
+- `POST /api/auth/signup` - User registration
+  - Body: `{ email, password, name, tenantId }`
+  - Returns: `{ user: { id, email, name, role, tenantId }, accessToken, refreshToken? }`
+  
+- `POST /api/auth/logout` - User logout
+  - Requires: Bearer token
+
+#### Courses
+- `GET /api/courses` - Get all courses for tenant
+- `GET /api/courses/:id` - Get course by ID
+- `POST /api/courses/:id/enroll` - Enroll in course
+
+#### Assignments
+- `GET /api/assignments` - Get all assignments
+- `GET /api/assignments/:id` - Get assignment by ID
+- `POST /api/assignments/:id/submit` - Submit assignment
+
+#### Quizzes
+- `GET /api/quizzes` - Get all quizzes
+- `GET /api/quizzes/:id` - Get quiz by ID
+- `POST /api/quizzes/:id/submit` - Submit quiz
+
+#### Grades
+- `GET /api/grades` - Get grades
+- `GET /api/grades/student/:id` - Get student grades
+
+#### Notifications
+- `GET /api/notifications` - Get notifications
+- `POST /api/notifications/:id/read` - Mark as read
+
+#### Dashboard
+- `GET /api/dashboard/stats` - Get dashboard statistics
+
+### Configuration
+
+Set your backend API URL by creating a `.env` file in the root directory:
+
+```env
+VITE_API_BASE_URL=http://your-backend-url.com/api
+```
+
+Or update `src/config/api.ts` directly.
+
+### Authentication Flow
+
+1. User logs in via `/login`
+2. Backend returns JWT access token
+3. Token is stored in localStorage
+4. All subsequent API calls include `Authorization: Bearer <token>` header
+5. Tenant is identified from the JWT token payload
+
+### Multi-tenancy
+
+The system supports multi-tenancy through:
+- Tenant ID in user registration
+- Tenant context resolved from JWT token
+- All API calls are automatically tenant-aware
+
+## LMS Features
+
+- Role-based access (Admin, Teacher, Student)
+- Course management and enrollment
+- Assignments and submissions
+- Quizzes and exams
+- Grade tracking and GPA calculation
+- Real-time notifications
+- Responsive design
+- Dark/light mode support
 
 ## How can I edit this code?
 
