@@ -1,72 +1,44 @@
+import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Users, Calendar, ArrowRight } from "lucide-react";
+import { BookOpen, Users, ArrowRight } from "lucide-react";
+import { courseService, Course } from "@/services/courses";
+import { useToast } from "@/hooks/use-toast";
 
 const Courses = () => {
-  const courses = [
-    {
-      id: 1,
-      name: "Data Structures & Algorithms",
-      code: "CS201",
-      instructor: "Dr. Sarah Johnson",
-      students: 45,
-      semester: "Fall 2025",
-      description: "Advanced data structures, algorithm design and analysis",
-      progress: 75,
-    },
-    {
-      id: 2,
-      name: "Digital Electronics",
-      code: "ECE301",
-      instructor: "Prof. Michael Chen",
-      students: 52,
-      semester: "Fall 2025",
-      description: "Digital logic design, sequential circuits, and microprocessors",
-      progress: 60,
-    },
-    {
-      id: 3,
-      name: "Engineering Mathematics III",
-      code: "MATH301",
-      instructor: "Dr. Emily Roberts",
-      students: 60,
-      semester: "Fall 2025",
-      description: "Differential equations, Laplace transforms, and Fourier series",
-      progress: 90,
-    },
-    {
-      id: 4,
-      name: "Database Management Systems",
-      code: "CS301",
-      instructor: "Prof. David Kumar",
-      students: 38,
-      semester: "Fall 2025",
-      description: "Relational databases, SQL, normalization, and transactions",
-      progress: 45,
-    },
-    {
-      id: 5,
-      name: "Computer Networks",
-      code: "CS302",
-      instructor: "Dr. Lisa Anderson",
-      students: 42,
-      semester: "Fall 2025",
-      description: "Network protocols, TCP/IP, routing, and network security",
-      progress: 55,
-    },
-    {
-      id: 6,
-      name: "Operating Systems",
-      code: "CS303",
-      instructor: "Prof. James Wilson",
-      students: 48,
-      semester: "Fall 2025",
-      description: "Process management, memory management, and file systems",
-      progress: 70,
-    },
-  ];
+  const { toast } = useToast();
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        const data = await courseService.getAll();
+        setCourses(data);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to load courses",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCourses();
+  }, [toast]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>

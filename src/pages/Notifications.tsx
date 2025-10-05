@@ -1,80 +1,106 @@
+import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Bell, CheckCheck, BookOpen, FileText, AlertCircle, GraduationCap } from "lucide-react";
+import { notificationService, Notification } from "@/services/notifications";
+import { useToast } from "@/hooks/use-toast";
 
 const Notifications = () => {
-  const notifications = [
-    {
-      id: 1,
-      type: "assignment",
-      title: "New Assignment Posted",
-      message: "Dr. Sarah Johnson posted a new assignment in Data Structures & Algorithms",
-      course: "CS201",
-      time: "2 hours ago",
-      read: false,
-      icon: FileText,
-      color: "text-primary",
-    },
-    {
-      id: 2,
-      type: "grade",
-      title: "Assignment Graded",
-      message: "Your SQL Database Design assignment has been graded: 92/100",
-      course: "CS301",
-      time: "5 hours ago",
-      read: false,
-      icon: GraduationCap,
-      color: "text-success",
-    },
-    {
-      id: 3,
-      type: "reminder",
-      title: "Quiz Reminder",
-      message: "Digital Logic Quiz 2 is scheduled for Oct 8, 2025",
-      course: "ECE301",
-      time: "1 day ago",
-      read: false,
-      icon: AlertCircle,
-      color: "text-secondary",
-    },
-    {
-      id: 4,
-      type: "announcement",
-      title: "Course Material Updated",
-      message: "New lecture slides available for Engineering Mathematics III",
-      course: "MATH301",
-      time: "2 days ago",
-      read: true,
-      icon: BookOpen,
-      color: "text-accent",
-    },
-    {
-      id: 5,
-      type: "grade",
-      title: "Quiz Results Published",
-      message: "Your Network Protocols Quiz score: 16/20 (80%)",
-      course: "CS302",
-      time: "3 days ago",
-      read: true,
-      icon: GraduationCap,
-      color: "text-success",
-    },
-    {
-      id: 6,
-      type: "assignment",
-      title: "Assignment Due Soon",
-      message: "Algorithm Implementation Project is due in 2 days",
-      course: "CS201",
-      time: "3 days ago",
-      read: true,
-      icon: AlertCircle,
-      color: "text-destructive",
-    },
-  ];
+  const { toast } = useToast();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        const data = await notificationService.getAll();
+        setNotifications(data);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to load notifications",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchNotifications();
+  }, [toast]);
+
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      await notificationService.markAsRead(id);
+      setNotifications(notifications.map(n => 
+        n.id === id ? { ...n, isRead: true } : n
+      ));
+      toast({
+        title: "Success",
+        description: "Notification marked as read",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to mark notification as read",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await Promise.all(
+        notifications
+          .filter(n => !n.isRead)
+          .map(n => notificationService.markAsRead(n.id))
+      );
+      setNotifications(notifications.map(n => ({ ...n, isRead: true })));
+      toast({
+        title: "Success",
+        description: "All notifications marked as read",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to mark all notifications as read",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </Layout>
+    );
+  }
+
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'assignment': return FileText;
+      case 'grade': return GraduationCap;
+      case 'announcement': return BookOpen;
+      case 'quiz': return AlertCircle;
+      default: return Bell;
+    }
+  };
+
+  const getColor = (type: string) => {
+    switch (type) {
+      case 'assignment': return 'text-primary';
+      case 'grade': return 'text-success';
+      case 'announcement': return 'text-accent';
+      case 'quiz': return 'text-secondary';
+      default: return 'text-muted-foreground';
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   return (
     <Layout>
@@ -87,10 +113,12 @@ const Notifications = () => {
               Stay updated with course activities and announcements
             </p>
           </div>
-          <Button variant="outline">
-            <CheckCheck className="mr-2 h-4 w-4" />
-            Mark All as Read
-          </Button>
+          {unreadCount > 0 && (
+            <Button variant="outline" onClick={handleMarkAllAsRead}>
+              <CheckCheck className="mr-2 h-4 w-4" />
+              Mark All as Read
+            </Button>
+          )}
         </div>
 
         {/* Unread Badge */}
@@ -106,16 +134,19 @@ const Notifications = () => {
         {/* Notifications List */}
         <div className="space-y-3">
           {notifications.map((notification) => {
-            const Icon = notification.icon;
+            const Icon = getIcon(notification.type);
+            const color = getColor(notification.type);
+            
             return (
               <Card
                 key={notification.id}
-                className={`shadow-card transition-all hover:shadow-elevated ${
-                  !notification.read ? 'border-l-4 border-l-primary' : ''
+                className={`shadow-card transition-all hover:shadow-elevated cursor-pointer ${
+                  !notification.isRead ? 'border-l-4 border-l-primary' : ''
                 }`}
+                onClick={() => !notification.isRead && handleMarkAsRead(notification.id)}
               >
                 <CardContent className="flex items-start gap-4 p-4">
-                  <div className={`rounded-lg bg-background p-2 ${notification.color}`}>
+                  <div className={`rounded-lg bg-background p-2 ${color}`}>
                     <Icon className="h-5 w-5" />
                   </div>
                   <div className="flex-1 space-y-1">
@@ -126,13 +157,12 @@ const Notifications = () => {
                           {notification.message}
                         </p>
                       </div>
-                      {!notification.read && (
+                      {!notification.isRead && (
                         <Badge variant="default">New</Badge>
                       )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <Badge variant="outline">{notification.course}</Badge>
-                      <span>{notification.time}</span>
+                      <span>{new Date(notification.timestamp).toLocaleDateString()}</span>
                     </div>
                   </div>
                 </CardContent>

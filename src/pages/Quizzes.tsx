@@ -1,60 +1,47 @@
+import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ClipboardList, Calendar, Clock, CheckCircle2 } from "lucide-react";
+import { quizService, Quiz } from "@/services/quizzes";
+import { useToast } from "@/hooks/use-toast";
 
 const Quizzes = () => {
-  const upcomingQuizzes = [
-    {
-      id: 1,
-      title: "Digital Logic Quiz 2",
-      course: "ECE301 - Digital Electronics",
-      date: "2025-10-08",
-      duration: 45,
-      questions: 20,
-      topics: ["Sequential Circuits", "Flip-Flops", "Counters"],
-    },
-    {
-      id: 2,
-      title: "Data Structures Midterm",
-      course: "CS201 - Data Structures",
-      date: "2025-10-12",
-      duration: 90,
-      questions: 40,
-      topics: ["Trees", "Graphs", "Hashing"],
-    },
-  ];
+  const { toast } = useToast();
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const completedQuizzes = [
-    {
-      id: 3,
-      title: "Database Normalization Quiz",
-      course: "CS301 - DBMS",
-      completedDate: "2025-09-28",
-      score: 18,
-      totalQuestions: 20,
-      percentage: 90,
-    },
-    {
-      id: 4,
-      title: "Network Protocols Quiz",
-      course: "CS302 - Computer Networks",
-      completedDate: "2025-09-25",
-      score: 16,
-      totalQuestions: 20,
-      percentage: 80,
-    },
-    {
-      id: 5,
-      title: "Algorithm Analysis Quiz",
-      course: "CS201 - Data Structures",
-      completedDate: "2025-09-20",
-      score: 19,
-      totalQuestions: 20,
-      percentage: 95,
-    },
-  ];
+  useEffect(() => {
+    const fetchQuizzes = async () => {
+      try {
+        const data = await quizService.getAll();
+        setQuizzes(data);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to load quizzes",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchQuizzes();
+  }, [toast]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </Layout>
+    );
+  }
+
+  const upcoming = quizzes.filter(q => q.status === 'upcoming');
+  const completed = quizzes.filter(q => q.status === 'completed');
 
   return (
     <Layout>
@@ -69,38 +56,28 @@ const Quizzes = () => {
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold">Upcoming</h2>
           <div className="grid gap-6 md:grid-cols-2">
-            {upcomingQuizzes.map((quiz) => (
+            {upcoming.map((quiz) => (
               <Card key={quiz.id} className="shadow-card">
                 <CardHeader>
                   <div className="mb-2 flex items-center gap-2">
                     <ClipboardList className="h-5 w-5 text-primary" />
                     <CardTitle>{quiz.title}</CardTitle>
                   </div>
-                  <CardDescription>{quiz.course}</CardDescription>
+                  <CardDescription>{quiz.courseName}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">{quiz.description}</p>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Calendar className="h-4 w-4" />
-                        <span>{new Date(quiz.date).toLocaleDateString()}</span>
+                        <span>{new Date(quiz.scheduledDate).toLocaleDateString()}</span>
                       </div>
-                      <Badge variant="secondary">{quiz.questions} questions</Badge>
+                      <Badge variant="secondary">{quiz.totalQuestions} questions</Badge>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Clock className="h-4 w-4" />
                       <span>{quiz.duration} minutes</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Topics Covered:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {quiz.topics.map((topic) => (
-                        <Badge key={topic} variant="outline">
-                          {topic}
-                        </Badge>
-                      ))}
                     </div>
                   </div>
 
@@ -117,7 +94,7 @@ const Quizzes = () => {
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold">Completed</h2>
           <div className="space-y-4">
-            {completedQuizzes.map((quiz) => (
+            {completed.map((quiz) => (
               <Card key={quiz.id} className="shadow-card">
                 <CardHeader>
                   <div className="flex items-start justify-between">
@@ -126,14 +103,14 @@ const Quizzes = () => {
                         <CheckCircle2 className="h-5 w-5 text-success" />
                         <CardTitle>{quiz.title}</CardTitle>
                       </div>
-                      <CardDescription>{quiz.course}</CardDescription>
+                      <CardDescription>{quiz.courseName}</CardDescription>
                     </div>
                     <div className="text-right">
                       <div className="text-2xl font-bold text-success">
-                        {quiz.percentage}%
+                        {Math.round(((quiz.score || 0) / (quiz.totalMarks || 1)) * 100)}%
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {quiz.score}/{quiz.totalQuestions}
+                        {quiz.score}/{quiz.totalMarks}
                       </p>
                     </div>
                   </div>
@@ -142,7 +119,7 @@ const Quizzes = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Calendar className="h-4 w-4" />
-                      <span>Completed: {new Date(quiz.completedDate).toLocaleDateString()}</span>
+                      <span>Completed: {new Date(quiz.scheduledDate).toLocaleDateString()}</span>
                     </div>
                     <Button variant="ghost" size="sm">
                       View Details

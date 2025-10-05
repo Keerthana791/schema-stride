@@ -1,81 +1,53 @@
+import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileText, Calendar, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { assignmentService, Assignment } from "@/services/assignments";
+import { useToast } from "@/hooks/use-toast";
 
 const Assignments = () => {
-  const assignments = {
-    pending: [
-      {
-        id: 1,
-        title: "Algorithm Implementation Project",
-        course: "CS201 - Data Structures",
-        dueDate: "2025-10-05",
-        daysLeft: 2,
-        points: 100,
-        description: "Implement AVL tree and Red-Black tree data structures",
-      },
-      {
-        id: 2,
-        title: "Digital Logic Circuit Design",
-        course: "ECE301 - Digital Electronics",
-        dueDate: "2025-10-08",
-        daysLeft: 5,
-        points: 80,
-        description: "Design a 4-bit ALU using logic gates",
-      },
-      {
-        id: 3,
-        title: "Differential Equations Problem Set",
-        course: "MATH301 - Engineering Math",
-        dueDate: "2025-10-10",
-        daysLeft: 7,
-        points: 50,
-        description: "Solve complex differential equations using Laplace transforms",
-      },
-    ],
-    submitted: [
-      {
-        id: 4,
-        title: "SQL Database Design",
-        course: "CS301 - DBMS",
-        submittedDate: "2025-09-28",
-        points: 100,
-        grade: 92,
-        status: "graded",
-      },
-      {
-        id: 5,
-        title: "Network Protocol Analysis",
-        course: "CS302 - Computer Networks",
-        submittedDate: "2025-09-25",
-        points: 75,
-        grade: null,
-        status: "pending",
-      },
-    ],
-    graded: [
-      {
-        id: 6,
-        title: "Process Scheduling Algorithms",
-        course: "CS303 - Operating Systems",
-        submittedDate: "2025-09-20",
-        gradedDate: "2025-09-22",
-        points: 100,
-        grade: 88,
-      },
-      {
-        id: 7,
-        title: "Binary Search Tree Implementation",
-        course: "CS201 - Data Structures",
-        submittedDate: "2025-09-15",
-        gradedDate: "2025-09-18",
-        points: 80,
-        grade: 95,
-      },
-    ],
+  const { toast } = useToast();
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAssignments = async () => {
+      try {
+        const data = await assignmentService.getAll();
+        setAssignments(data);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to load assignments",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAssignments();
+  }, [toast]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </Layout>
+    );
+  }
+
+  const pending = assignments.filter(a => a.status === 'pending');
+  const submitted = assignments.filter(a => a.status === 'submitted');
+  const graded = assignments.filter(a => a.status === 'graded');
+
+  const getDaysLeft = (dueDate: string) => {
+    const days = Math.ceil((new Date(dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    return days;
   };
 
   return (
@@ -91,57 +63,60 @@ const Assignments = () => {
         <Tabs defaultValue="pending" className="space-y-6">
           <TabsList>
             <TabsTrigger value="pending">
-              Pending ({assignments.pending.length})
+              Pending ({pending.length})
             </TabsTrigger>
             <TabsTrigger value="submitted">
-              Submitted ({assignments.submitted.length})
+              Submitted ({submitted.length})
             </TabsTrigger>
             <TabsTrigger value="graded">
-              Graded ({assignments.graded.length})
+              Graded ({graded.length})
             </TabsTrigger>
           </TabsList>
 
           {/* Pending Assignments */}
           <TabsContent value="pending" className="space-y-4">
-            {assignments.pending.map((assignment) => (
-              <Card key={assignment.id} className="shadow-card">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="mb-2 flex items-center gap-2">
-                        <FileText className="h-5 w-5 text-primary" />
-                        <CardTitle>{assignment.title}</CardTitle>
+            {pending.map((assignment) => {
+              const daysLeft = getDaysLeft(assignment.dueDate);
+              return (
+                <Card key={assignment.id} className="shadow-card">
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="mb-2 flex items-center gap-2">
+                          <FileText className="h-5 w-5 text-primary" />
+                          <CardTitle>{assignment.title}</CardTitle>
+                        </div>
+                        <CardDescription>{assignment.courseName}</CardDescription>
                       </div>
-                      <CardDescription>{assignment.course}</CardDescription>
+                      <Badge variant={daysLeft <= 2 ? "destructive" : "secondary"}>
+                        {daysLeft} days left
+                      </Badge>
                     </div>
-                    <Badge variant={assignment.daysLeft <= 2 ? "destructive" : "secondary"}>
-                      {assignment.daysLeft} days left
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground">{assignment.description}</p>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-4 w-4" />
-                        <span>Due: {new Date(assignment.dueDate).toLocaleDateString()}</span>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <p className="text-sm text-muted-foreground">{assignment.description}</p>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-4 w-4" />
+                          <span>Due: {new Date(assignment.dueDate).toLocaleDateString()}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <AlertCircle className="h-4 w-4" />
+                          <span>{assignment.maxPoints} points</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <AlertCircle className="h-4 w-4" />
-                        <span>{assignment.points} points</span>
-                      </div>
+                      <Button>Submit Assignment</Button>
                     </div>
-                    <Button>Submit Assignment</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </TabsContent>
 
           {/* Submitted Assignments */}
           <TabsContent value="submitted" className="space-y-4">
-            {assignments.submitted.map((assignment) => (
+            {submitted.map((assignment) => (
               <Card key={assignment.id} className="shadow-card">
                 <CardHeader>
                   <div className="flex items-start justify-between">
@@ -150,24 +125,17 @@ const Assignments = () => {
                         <Clock className="h-5 w-5 text-secondary" />
                         <CardTitle>{assignment.title}</CardTitle>
                       </div>
-                      <CardDescription>{assignment.course}</CardDescription>
+                      <CardDescription>{assignment.courseName}</CardDescription>
                     </div>
-                    <Badge variant={assignment.status === "graded" ? "default" : "outline"}>
-                      {assignment.status === "graded" ? "Graded" : "Pending Review"}
-                    </Badge>
+                    <Badge variant="outline">Pending Review</Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-4 text-muted-foreground">
-                      <span>Submitted: {new Date(assignment.submittedDate).toLocaleDateString()}</span>
-                      <span>{assignment.points} points</span>
+                      <span>Submitted: {assignment.submittedAt ? new Date(assignment.submittedAt).toLocaleDateString() : 'N/A'}</span>
+                      <span>{assignment.maxPoints} points</span>
                     </div>
-                    {assignment.grade !== null && (
-                      <div className="text-lg font-bold text-success">
-                        {assignment.grade}/{assignment.points}
-                      </div>
-                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -176,7 +144,7 @@ const Assignments = () => {
 
           {/* Graded Assignments */}
           <TabsContent value="graded" className="space-y-4">
-            {assignments.graded.map((assignment) => (
+            {graded.map((assignment) => (
               <Card key={assignment.id} className="shadow-card">
                 <CardHeader>
                   <div className="flex items-start justify-between">
@@ -185,23 +153,27 @@ const Assignments = () => {
                         <CheckCircle2 className="h-5 w-5 text-success" />
                         <CardTitle>{assignment.title}</CardTitle>
                       </div>
-                      <CardDescription>{assignment.course}</CardDescription>
+                      <CardDescription>{assignment.courseName}</CardDescription>
                     </div>
                     <div className="text-right">
                       <div className="text-2xl font-bold text-success">
-                        {assignment.grade}/{assignment.points}
+                        {assignment.grade}/{assignment.maxPoints}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {Math.round((assignment.grade / assignment.points) * 100)}%
+                        {Math.round(((assignment.grade || 0) / assignment.maxPoints) * 100)}%
                       </p>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <span>Submitted: {new Date(assignment.submittedDate).toLocaleDateString()}</span>
-                    <span>Graded: {new Date(assignment.gradedDate).toLocaleDateString()}</span>
+                    <span>Submitted: {assignment.submittedAt ? new Date(assignment.submittedAt).toLocaleDateString() : 'N/A'}</span>
                   </div>
+                  {assignment.feedback && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      <span className="font-medium">Feedback:</span> {assignment.feedback}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             ))}

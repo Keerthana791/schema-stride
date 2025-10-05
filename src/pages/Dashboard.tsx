@@ -1,49 +1,72 @@
+import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookOpen, FileText, ClipboardList, GraduationCap, TrendingUp } from "lucide-react";
+import { dashboardService, DashboardData } from "@/services/dashboard";
+import { useToast } from "@/hooks/use-toast";
 
 const Dashboard = () => {
+  const { toast } = useToast();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const dashboardData = await dashboardService.getData();
+        setData(dashboardData);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to load dashboard data",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [toast]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </Layout>
+    );
+  }
+
   const stats = [
     {
       title: "Enrolled Courses",
-      value: "6",
+      value: data?.stats.enrolledCourses.toString() || "0",
       icon: BookOpen,
       color: "text-primary",
       bgColor: "bg-primary/10",
     },
     {
       title: "Pending Assignments",
-      value: "3",
+      value: data?.stats.pendingAssignments.toString() || "0",
       icon: FileText,
       color: "text-secondary",
       bgColor: "bg-secondary/10",
     },
     {
       title: "Upcoming Quizzes",
-      value: "2",
+      value: data?.stats.upcomingQuizzes.toString() || "0",
       icon: ClipboardList,
       color: "text-accent",
       bgColor: "bg-accent/10",
     },
     {
       title: "Average Grade",
-      value: "85%",
+      value: `${data?.stats.averageGrade || 0}%`,
       icon: GraduationCap,
       color: "text-success",
       bgColor: "bg-success/10",
     },
-  ];
-
-  const recentCourses = [
-    { id: 1, name: "Data Structures & Algorithms", code: "CS201", progress: 75 },
-    { id: 2, name: "Digital Electronics", code: "ECE301", progress: 60 },
-    { id: 3, name: "Engineering Mathematics III", code: "MATH301", progress: 90 },
-  ];
-
-  const upcomingDeadlines = [
-    { id: 1, title: "Algorithm Assignment #3", course: "CS201", dueDate: "2 days", type: "Assignment" },
-    { id: 2, title: "Digital Logic Quiz", course: "ECE301", dueDate: "5 days", type: "Quiz" },
-    { id: 3, title: "Calculus Problem Set", course: "MATH301", dueDate: "1 week", type: "Assignment" },
   ];
 
   return (
@@ -85,7 +108,7 @@ const Dashboard = () => {
               <CardDescription>Your active course progress</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {recentCourses.map((course) => (
+              {data?.recentCourses.map((course) => (
                 <div key={course.id} className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div>
@@ -115,18 +138,20 @@ const Dashboard = () => {
               <CardDescription>Stay on track with your submissions</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {upcomingDeadlines.map((item) => (
+              {data?.upcomingDeadlines.map((item) => (
                 <div
                   key={item.id}
                   className="flex items-start justify-between rounded-lg border p-3"
                 >
                   <div className="space-y-1">
                     <p className="font-medium">{item.title}</p>
-                    <p className="text-sm text-muted-foreground">{item.course}</p>
+                    <p className="text-sm text-muted-foreground">{item.courseName}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-medium text-accent">{item.dueDate}</p>
-                    <p className="text-xs text-muted-foreground">{item.type}</p>
+                    <p className="text-sm font-medium text-accent">
+                      {new Date(item.dueDate).toLocaleDateString()}
+                    </p>
+                    <p className="text-xs text-muted-foreground capitalize">{item.type}</p>
                   </div>
                 </div>
               ))}
