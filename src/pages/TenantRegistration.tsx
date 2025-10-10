@@ -8,14 +8,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { authService, TenantRegistrationData } from '@/services/auth';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 const tenantRegistrationSchema = z.object({
-  tenantId: z.string().min(3, 'Tenant ID must be at least 3 characters').max(50, 'Tenant ID must be less than 50 characters'),
+  institutionId: z.string().min(3, 'Institution ID must be at least 3 characters').max(50, 'Institution ID must be less than 50 characters'),
   institutionName: z.string().min(3, 'Institution name must be at least 3 characters').max(200, 'Institution name must be less than 200 characters'),
+  institutionPassword: z.string().min(6, 'Institution password must be at least 6 characters'),
   adminEmail: z.string().email('Valid email required'),
-  adminPassword: z.string().min(6, 'Password must be at least 6 characters'),
+  adminPassword: z.string().min(6, 'Admin password must be at least 6 characters'),
   adminName: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be less than 100 characters'),
 });
 
@@ -40,17 +41,45 @@ const TenantRegistration = () => {
     setError(null);
 
     try {
-      await authService.registerTenant(data as TenantRegistrationData);
+      // Call edge function to register institution
+      const { data: registerData, error: registerError } = await supabase.functions.invoke('register-institution', {
+        body: {
+          institutionId: data.institutionId,
+          institutionName: data.institutionName,
+          institutionPassword: data.institutionPassword,
+          adminEmail: data.adminEmail,
+          adminPassword: data.adminPassword,
+          adminName: data.adminName,
+        },
+      });
+
+      if (registerError) {
+        throw new Error(registerError.message);
+      }
+
+      if (!registerData?.success) {
+        throw new Error('Institution registration failed');
+      }
+
+      // Sign in the admin user
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: data.adminEmail,
+        password: data.adminPassword,
+      });
+
+      if (signInError) throw signInError;
+
       toast({
         title: 'Success',
-        description: 'Tenant registered successfully! You are now logged in.',
+        description: 'Institution registered successfully! You are now logged in.',
       });
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Registration failed');
+      const errorMessage = err.message || 'Registration failed';
+      setError(errorMessage);
       toast({
         title: 'Error',
-        description: err.message || 'Registration failed',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
@@ -87,17 +116,20 @@ const TenantRegistration = () => {
 
               <div className="space-y-4">
                 <div>
-                  <Label htmlFor="tenantId">Institution ID</Label>
+                  <Label htmlFor="institutionId">Institution ID</Label>
                   <Input
-                    id="tenantId"
+                    id="institutionId"
                     type="text"
                     placeholder="e.g., collegeA"
-                    {...register('tenantId')}
-                    className={errors.tenantId ? 'border-red-500' : ''}
+                    {...register('institutionId')}
+                    className={errors.institutionId ? 'border-red-500' : ''}
                   />
-                  {errors.tenantId && (
-                    <p className="text-sm text-red-500 mt-1">{errors.tenantId.message}</p>
+                  {errors.institutionId && (
+                    <p className="text-sm text-red-500 mt-1">{errors.institutionId.message}</p>
                   )}
+                  <p className="text-xs text-gray-500 mt-1">
+                    Unique identifier for your institution (letters, numbers, no spaces)
+                  </p>
                 </div>
 
                 <div>
@@ -112,6 +144,23 @@ const TenantRegistration = () => {
                   {errors.institutionName && (
                     <p className="text-sm text-red-500 mt-1">{errors.institutionName.message}</p>
                   )}
+                </div>
+
+                <div>
+                  <Label htmlFor="institutionPassword">Institution Password</Label>
+                  <Input
+                    id="institutionPassword"
+                    type="password"
+                    placeholder="Create a password for your institution"
+                    {...register('institutionPassword')}
+                    className={errors.institutionPassword ? 'border-red-500' : ''}
+                  />
+                  {errors.institutionPassword && (
+                    <p className="text-sm text-red-500 mt-1">{errors.institutionPassword.message}</p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-1">
+                    This password will be required for new users to join your institution
+                  </p>
                 </div>
 
                 <div>
