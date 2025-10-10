@@ -24,7 +24,16 @@ export interface SignupData {
   email: string;
   password: string;
   name: string;
+  role: 'teacher' | 'student';
   tenantId: string;
+}
+
+export interface TenantRegistrationData {
+  tenantId: string;
+  institutionName: string;
+  adminEmail: string;
+  adminPassword: string;
+  adminName: string;
 }
 
 export const authService = {
@@ -44,11 +53,26 @@ export const authService = {
     return response;
   },
 
-  async signup(data: SignupData): Promise<AuthResponse> {
+  async registerTenant(data: TenantRegistrationData): Promise<AuthResponse> {
     const response = await apiClient.post<AuthResponse>(
-      API_CONFIG.ENDPOINTS.SIGNUP,
+      API_CONFIG.ENDPOINTS.REGISTER_TENANT,
       data,
       { requiresAuth: false }
+    );
+    
+    localStorage.setItem('access_token', response.accessToken);
+    if (response.refreshToken) {
+      localStorage.setItem('refresh_token', response.refreshToken);
+    }
+    localStorage.setItem('user', JSON.stringify(response.user));
+    
+    return response;
+  },
+
+  async signup(data: SignupData): Promise<AuthResponse> {
+    const response = await apiClient.post<AuthResponse>(
+      API_CONFIG.ENDPOINTS.REGISTER,
+      data
     );
     
     localStorage.setItem('access_token', response.accessToken);

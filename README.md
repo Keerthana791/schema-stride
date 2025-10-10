@@ -1,157 +1,322 @@
-# Engineering LMS - Multi-tenant Learning Management System
+# Multi-Tenant Learning Management System (LMS)
 
-A modern, multi-tenant Learning Management System built with React, TypeScript, and Tailwind CSS.
+A comprehensive multi-tenant Learning Management System built with Node.js, Express, React, and PostgreSQL. Each tenant (institution) has its own isolated schema while sharing the same database infrastructure.
 
-## Project info
+## 🏗️ Architecture
 
-**URL**: https://lovable.dev/projects/6b430513-85d0-4880-8649-9f57e71fa68a
+### Backend (Node.js + Express)
+- **Multi-tenant architecture** with separate schemas per tenant
+- **JWT-based authentication** with role-based access control
+- **PostgreSQL database** with tenant isolation
+- **File upload system** with tenant-specific storage
+- **RESTful API** with comprehensive LMS features
 
-## Backend Integration
+### Frontend (React + TypeScript)
+- **Modern React 18** with TypeScript
+- **Tailwind CSS** for styling
+- **Shadcn/ui** component library
+- **React Query** for data fetching
+- **React Router** for navigation
 
-This application is configured to connect to an external backend API. You need to provide your own backend server.
+### Database Schema
+- **Main database**: Tenant mapping and global user management
+- **Tenant schemas**: Isolated data per institution
+- **Tables**: Students, Teachers, Courses, Enrollments, Assignments, Quizzes, Grades, Notifications, File Uploads
 
-### Backend Requirements
+## 🚀 Features
 
-Your backend should implement the following endpoints:
+### Multi-Tenant Support
+- ✅ Tenant registration and schema creation
+- ✅ Subdomain-based tenant resolution
+- ✅ JWT token-based tenant identification
+- ✅ Complete data isolation between tenants
 
-#### Authentication
-- `POST /api/auth/login` - User login
-  - Body: `{ email, password }`
-  - Returns: `{ user: { id, email, name, role, tenantId }, accessToken, refreshToken? }`
-  
-- `POST /api/auth/signup` - User registration
-  - Body: `{ email, password, name, tenantId }`
-  - Returns: `{ user: { id, email, name, role, tenantId }, accessToken, refreshToken? }`
-  
-- `POST /api/auth/logout` - User logout
-  - Requires: Bearer token
+### User Management
+- ✅ Role-based access control (Admin, Teacher, Student)
+- ✅ User registration within tenants
+- ✅ Profile management
+- ✅ Authentication and authorization
 
-#### Courses
-- `GET /api/courses` - Get all courses for tenant
-- `GET /api/courses/:id` - Get course by ID
-- `POST /api/courses/:id/enroll` - Enroll in course
+### Course Management
+- ✅ Create and manage courses
+- ✅ Student enrollment
+- ✅ Course assignments and materials
+- ✅ Teacher-student relationships
 
-#### Assignments
-- `GET /api/assignments` - Get all assignments
-- `GET /api/assignments/:id` - Get assignment by ID
-- `POST /api/assignments/:id/submit` - Submit assignment
+### Assignment System
+- ✅ Create assignments with due dates
+- ✅ File attachments support
+- ✅ Student submissions
+- ✅ Grading and feedback system
 
-#### Quizzes
-- `GET /api/quizzes` - Get all quizzes
-- `GET /api/quizzes/:id` - Get quiz by ID
-- `POST /api/quizzes/:id/submit` - Submit quiz
+### Quiz System
+- ✅ Multiple choice and true/false questions
+- ✅ Time-limited quizzes
+- ✅ Multiple attempts support
+- ✅ Automatic scoring
 
-#### Grades
-- `GET /api/grades` - Get grades
-- `GET /api/grades/student/:id` - Get student grades
+### Grade Management
+- ✅ Assignment and quiz grading
+- ✅ Grade statistics and analytics
+- ✅ Student grade summaries
+- ✅ Grade distribution reports
 
-#### Notifications
-- `GET /api/notifications` - Get notifications
-- `POST /api/notifications/:id/read` - Mark as read
+### Notification System
+- ✅ Real-time notifications
+- ✅ Bulk notifications for announcements
+- ✅ Notification management
+- ✅ Unread count tracking
 
-#### Dashboard
-- `GET /api/dashboard/stats` - Get dashboard statistics
+### File Management
+- ✅ Secure file uploads
+- ✅ Tenant-specific file storage
+- ✅ File access control
+- ✅ Multiple file format support
 
-### Configuration
+## 📋 Prerequisites
 
-Set your backend API URL by creating a `.env` file in the root directory:
+- Node.js (v18 or higher)
+- PostgreSQL (v12 or higher)
+- npm or yarn
 
-```env
-VITE_API_BASE_URL=http://your-backend-url.com/api
+## 🛠️ Installation
+
+### 1. Clone the Repository
+```bash
+git clone <repository-url>
+cd schema-stride
 ```
 
-Or update `src/config/api.ts` directly.
+### 2. Backend Setup
+```bash
+cd backend
+npm install
+```
 
-### Authentication Flow
+### 3. Database Setup
+```bash
+# Create PostgreSQL database
+createdb lms_main
 
-1. User logs in via `/login`
-2. Backend returns JWT access token
-3. Token is stored in localStorage
-4. All subsequent API calls include `Authorization: Bearer <token>` header
-5. Tenant is identified from the JWT token payload
+# Set up environment variables
+cp env.example .env
+# Edit .env with your database credentials
+```
 
-### Multi-tenancy
+### 4. Run Migrations
+```bash
+npm run migrate
+```
 
-The system supports multi-tenancy through:
-- Tenant ID in user registration
-- Tenant context resolved from JWT token
-- All API calls are automatically tenant-aware
+### 5. Seed Sample Data
+```bash
+npm run seed
+```
 
-## LMS Features
-
-- Role-based access (Admin, Teacher, Student)
-- Course management and enrollment
-- Assignments and submissions
-- Quizzes and exams
-- Grade tracking and GPA calculation
-- Real-time notifications
-- Responsive design
-- Dark/light mode support
-
-## How can I edit this code?
-
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/6b430513-85d0-4880-8649-9f57e71fa68a) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+### 6. Start Backend Server
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### 7. Frontend Setup
+```bash
+# In the root directory
+npm install
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### 8. Start Frontend Development Server
+```bash
+npm run dev
+```
 
-**Use GitHub Codespaces**
+## 🔧 Configuration
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Environment Variables
 
-## What technologies are used for this project?
+#### Backend (.env)
+```env
+# Database Configuration
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=lms_main
+DB_USER=postgres
+DB_PASSWORD=password
 
-This project is built with:
+# JWT Configuration
+JWT_SECRET=your-super-secret-jwt-key-here
+JWT_EXPIRES_IN=24h
+JWT_REFRESH_EXPIRES_IN=7d
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+# Server Configuration
+PORT=3000
+NODE_ENV=development
 
-## How can I deploy this project?
+# File Upload Configuration
+UPLOAD_DIR=uploads
+MAX_FILE_SIZE=10485760
 
-Simply open [Lovable](https://lovable.dev/projects/6b430513-85d0-4880-8649-9f57e71fa68a) and click on Share -> Publish.
+# CORS Configuration
+CORS_ORIGIN=http://localhost:5173
+```
 
-## Can I connect a custom domain to my Lovable project?
+#### Frontend (.env)
+```env
+VITE_API_BASE_URL=http://localhost:3000/api
+```
 
-Yes, you can!
+## 🎯 Usage
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+### 1. Register a New Institution
+1. Navigate to `/tenant-registration`
+2. Fill in institution details
+3. Create admin account
+4. Institution schema is automatically created
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+### 2. User Registration
+1. Admin can register teachers and students
+2. Teachers and students can self-register (if enabled)
+3. Each user belongs to a specific tenant
+
+### 3. Course Management
+1. Teachers create courses
+2. Students enroll in courses
+3. Assignments and quizzes are course-specific
+
+### 4. Assignment Workflow
+1. Teacher creates assignment
+2. Students submit assignments
+3. Teacher grades submissions
+4. Students view grades and feedback
+
+## 📊 Database Schema
+
+### Main Database Tables
+- `tenant_mapping`: Maps tenant IDs to schema names
+- `users`: Global user management
+- `refresh_tokens`: JWT refresh token storage
+
+### Tenant Schema Tables
+- `students`: Student profiles
+- `teachers`: Teacher profiles
+- `courses`: Course information
+- `enrollments`: Student-course relationships
+- `assignments`: Assignment details
+- `assignment_submissions`: Student submissions
+- `quizzes`: Quiz information
+- `quiz_submissions`: Quiz submissions
+- `grades`: Grade records
+- `notifications`: Notification system
+- `file_uploads`: File management
+
+## 🔐 Security Features
+
+- **JWT Authentication**: Secure token-based authentication
+- **Role-based Access Control**: Granular permissions
+- **Tenant Isolation**: Complete data separation
+- **File Security**: Tenant-specific file storage
+- **Input Validation**: Comprehensive data validation
+- **Rate Limiting**: API protection
+
+## 🧪 Testing
+
+### Sample Login Credentials (After Seeding)
+```
+Institution: College A
+- Admin: admin@collegeA.com / admin123
+- Teacher: smith@collegeA.com / teacher123
+- Student: alice@collegeA.com / student123
+
+Institution: College B
+- Admin: admin@collegeB.com / admin123
+- Teacher: smith@collegeB.com / teacher123
+- Student: alice@collegeB.com / student123
+```
+
+## 📈 API Endpoints
+
+### Authentication
+- `POST /api/auth/register-tenant` - Register new institution
+- `POST /api/auth/register` - Register user within tenant
+- `POST /api/auth/login` - User login
+- `POST /api/auth/logout` - User logout
+- `GET /api/auth/me` - Get current user
+
+### Courses
+- `GET /api/courses` - List courses
+- `POST /api/courses` - Create course
+- `GET /api/courses/:id` - Get course details
+- `PUT /api/courses/:id` - Update course
+- `DELETE /api/courses/:id` - Delete course
+- `POST /api/courses/:id/enroll` - Enroll in course
+
+### Assignments
+- `GET /api/assignments` - List assignments
+- `POST /api/assignments` - Create assignment
+- `GET /api/assignments/:id` - Get assignment
+- `POST /api/assignments/:id/submit` - Submit assignment
+- `GET /api/assignments/:id/submissions` - Get submissions
+
+### Quizzes
+- `GET /api/quizzes` - List quizzes
+- `POST /api/quizzes` - Create quiz
+- `GET /api/quizzes/:id` - Get quiz
+- `POST /api/quizzes/:id/submit` - Submit quiz
+
+### Grades
+- `GET /api/grades` - List grades
+- `POST /api/grades` - Create grade
+- `GET /api/grades/course/:id` - Get course grades
+- `GET /api/grades/student/:id` - Get student grades
+
+### Notifications
+- `GET /api/notifications` - List notifications
+- `POST /api/notifications` - Create notification
+- `PUT /api/notifications/:id/read` - Mark as read
+
+### File Upload
+- `POST /api/upload/single` - Upload single file
+- `POST /api/upload/multiple` - Upload multiple files
+- `GET /api/upload/:id/download` - Download file
+
+## 🚀 Deployment
+
+### Backend Deployment
+1. Set up PostgreSQL database
+2. Configure environment variables
+3. Run migrations: `npm run migrate`
+4. Start server: `npm start`
+
+### Frontend Deployment
+1. Build the application: `npm run build`
+2. Deploy to your hosting service
+3. Configure API base URL
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## 📝 License
+
+This project is licensed under the MIT License.
+
+## 🆘 Support
+
+For support and questions:
+- Create an issue in the repository
+- Check the documentation
+- Review the API endpoints
+
+## 🔄 Roadmap
+
+- [ ] Real-time notifications with WebSockets
+- [ ] Advanced analytics and reporting
+- [ ] Mobile app support
+- [ ] Integration with external systems
+- [ ] Advanced file management
+- [ ] Video streaming support
+- [ ] Discussion forums
+- [ ] Attendance tracking

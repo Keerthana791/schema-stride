@@ -1,20 +1,37 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GraduationCap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { authService } from "@/services/auth";
+import { authService, SignupData } from "@/services/auth";
 import { useAuth } from "@/contexts/AuthContext";
+import { apiClient } from "@/services/api";
+import API_CONFIG from "@/config/api";
 
 const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [tenants, setTenants] = useState([]);
+
+  // Load available tenants
+  useEffect(() => {
+    const loadTenants = async () => {
+      try {
+        const response = await apiClient.get(API_CONFIG.ENDPOINTS.TENANTS, { requiresAuth: false });
+        setTenants(response.tenants);
+      } catch (error) {
+        console.error('Failed to load tenants:', error);
+      }
+    };
+    loadTenants();
+  }, []);
 
   // Redirect if already authenticated
   if (user) {
@@ -56,10 +73,11 @@ const Login = () => {
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
     const name = formData.get('name') as string;
+    const role = formData.get('role') as 'teacher' | 'student';
     const tenantId = formData.get('tenantId') as string;
 
     try {
-      await authService.signup({ email, password, name, tenantId });
+      await authService.signup({ email, password, name, role, tenantId });
       toast({
         title: "Account created",
         description: "Your account has been created successfully",
@@ -96,9 +114,10 @@ const Login = () => {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="login">
-              <TabsList className="grid w-full grid-cols-2">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="login">Login</TabsTrigger>
                 <TabsTrigger value="signup">Sign Up</TabsTrigger>
+                <TabsTrigger value="tenant">Register Institution</TabsTrigger>
               </TabsList>
 
               <TabsContent value="login">
@@ -151,14 +170,34 @@ const Login = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="signup-tenant">College/Institution Code</Label>
-                    <Input
-                      id="signup-tenant"
-                      name="tenantId"
-                      type="text"
-                      placeholder="collegeA"
-                      required
-                    />
+                    <Label htmlFor="signup-tenant">Institution</Label>
+                    <Select name="tenantId" required>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select your institution" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tenants.map((tenant) => (
+                          <SelectItem key={tenant.tenant_id} value={tenant.tenant_id}>
+                            {tenant.institution_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500">
+                      Select your institution from the list
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-role">Role</Label>
+                    <Select name="role" required>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select your role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="teacher">Teacher</SelectItem>
+                        <SelectItem value="student">Student</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="signup-password">Password</Label>
@@ -173,6 +212,22 @@ const Login = () => {
                     {isLoading ? "Creating account..." : "Create Account"}
                   </Button>
                 </form>
+              </TabsContent>
+
+              <TabsContent value="tenant">
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Register a new institution to get started with your own LMS instance.
+                    </p>
+                    <Button
+                      onClick={() => navigate('/tenant-registration')}
+                      className="w-full"
+                    >
+                      Register New Institution
+                    </Button>
+                  </div>
+                </div>
               </TabsContent>
             </Tabs>
           </CardContent>
