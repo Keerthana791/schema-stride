@@ -54,6 +54,9 @@ export const API_CONFIG = {
     BULK_NOTIFICATIONS: '/notifications/bulk',
     NOTIFICATION_STATS: '/notifications/stats',
     
+    // Dashboard
+    DASHBOARD_STATS: '/dashboard/stats',
+    
     // Users
     USERS: '/users',
     USER_BY_ID: (id: string) => `/users/${id}`,

@@ -18,13 +18,16 @@ const Login = () => {
   const { toast } = useToast();
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
-  const [tenants, setTenants] = useState([]);
+  const [tenants, setTenants] = useState<Array<{ tenant_id: string; institution_name: string }>>([]);
 
   // Load available tenants
   useEffect(() => {
     const loadTenants = async () => {
       try {
-        const response = await apiClient.get(API_CONFIG.ENDPOINTS.TENANTS, { requiresAuth: false });
+        const response = await apiClient.get<{ tenants: Array<{ tenant_id: string; institution_name: string }> }>(
+          API_CONFIG.ENDPOINTS.TENANTS, 
+          { requiresAuth: false }
+        );
         setTenants(response.tenants);
       } catch (error) {
         console.error('Failed to load tenants:', error);
