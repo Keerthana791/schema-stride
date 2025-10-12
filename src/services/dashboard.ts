@@ -69,7 +69,7 @@ export const dashboardService = {
   },
 
   async getUserStats(): Promise<UserStats> {
-    const response = await apiClient.get<UserStats>(API_CONFIG.ENDPOINTS.USER_STATS);
+    const response = await apiClient.get<UserStats>(API_CONFIG.ENDPOINTS.DASHBOARD_USER_STATS);
     return response;
   },
 

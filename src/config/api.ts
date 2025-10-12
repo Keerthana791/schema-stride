@@ -56,6 +56,8 @@ export const API_CONFIG = {
     
     // Dashboard
     DASHBOARD_STATS: '/dashboard/stats',
+    DASHBOARD_USER_STATS: '/dashboard/user-stats',
+    DASHBOARD_NOTIFICATIONS: '/dashboard/notifications',
     
     // Users
     USERS: '/users',
@@ -72,11 +74,6 @@ export const API_CONFIG = {
     FILE_BY_ID: (id: string) => `/upload/${id}`,
     DOWNLOAD_FILE: (id: string) => `/upload/${id}/download`,
     UPLOAD_STATS: '/upload/stats',
-    
-    // Dashboard
-    DASHBOARD_STATS: '/dashboard/stats',
-    USER_STATS: '/dashboard/user-stats',
-    DASHBOARD_NOTIFICATIONS: '/dashboard/notifications',
     
     // Admin/User Management
     ADMIN_USERS: '/admin/users',
