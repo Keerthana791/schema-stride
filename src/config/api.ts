@@ -72,6 +72,21 @@ export const API_CONFIG = {
     FILE_BY_ID: (id: string) => `/upload/${id}`,
     DOWNLOAD_FILE: (id: string) => `/upload/${id}/download`,
     UPLOAD_STATS: '/upload/stats',
+    
+    // Dashboard
+    DASHBOARD_STATS: '/dashboard/stats',
+    USER_STATS: '/dashboard/user-stats',
+    DASHBOARD_NOTIFICATIONS: '/dashboard/notifications',
+    
+    // Admin/User Management
+    ADMIN_USERS: '/admin/users',
+    ADMIN_USER_BY_ID: (id: string) => `/admin/users/${id}`,
+    ADMIN_CREATE_USER: '/admin/users',
+    ADMIN_UPDATE_USER: (id: string) => `/admin/users/${id}`,
+    ADMIN_DELETE_USER: (id: string) => `/admin/users/${id}`,
+    ADMIN_ROLES: '/admin/roles',
+    ADMIN_ASSIGN_ROLE: (id: string) => `/admin/users/${id}/roles`,
+    ADMIN_REMOVE_ROLE: (id: string, roleId: string) => `/admin/users/${id}/roles/${roleId}`,
   }
 };
 

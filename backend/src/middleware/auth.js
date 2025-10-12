@@ -69,6 +69,49 @@ export const authorize = (...roles) => {
   };
 };
 
+// Permission-based authorization middleware
+export const requirePermission = (permission) => {
+  return async (req, res, next) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      // Get user's permissions from tenant roles
+      const tenantPool = req.tenantPool;
+      if (!tenantPool) {
+        return res.status(500).json({ message: 'Tenant context required' });
+      }
+
+      const permissionsResult = await tenantPool.query(`
+        SELECT r.permissions 
+        FROM user_roles ur
+        JOIN roles r ON ur.role_id = r.id
+        WHERE ur.user_id = $1 AND ur.is_active = true AND r.is_active = true
+      `, [req.user.id]);
+
+      let userPermissions = [];
+      permissionsResult.rows.forEach(row => {
+        if (row.permissions) {
+          userPermissions = userPermissions.concat(row.permissions);
+        }
+      });
+
+      // Check if user has the required permission
+      if (!userPermissions.includes(permission) && !userPermissions.includes('system:admin')) {
+        return res.status(403).json({ 
+          message: `Access denied. Required permission: ${permission}` 
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({ message: 'Permission check failed' });
+    }
+  };
+};
+
 // Check if user can access resource (owner or admin/teacher)
 export const canAccessResource = (resourceUserIdField = 'user_id') => {
   return (req, res, next) => {

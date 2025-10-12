@@ -61,6 +61,23 @@ router.post('/register-tenant', [
 
     const user = userResult.rows[0];
 
+    // Assign ADMIN role to the admin user
+    const { getTenantPool } = await import('../config/database.js');
+    const tenantPool = await getTenantPool(tenantId);
+    
+    // Get ADMIN role ID and assign it to the user
+    const adminRoleResult = await tenantPool.query(
+      'SELECT id FROM roles WHERE name = $1',
+      ['ADMIN']
+    );
+    
+    if (adminRoleResult.rows.length > 0) {
+      await tenantPool.query(
+        'INSERT INTO user_roles (user_id, role_id, assigned_by) VALUES ($1, $2, $1)',
+        [user.id, adminRoleResult.rows[0].id]
+      );
+    }
+
     // Generate JWT token
     const token = jwt.sign(
       { 
@@ -138,7 +155,7 @@ router.post('/register', [
 
     const user = userResult.rows[0];
 
-    // Create user profile in tenant schema
+    // Create user profile in tenant schema and assign role
     const { getTenantPool } = await import('../config/database.js');
     const tenantPool = await getTenantPool(tenantId);
     
@@ -151,6 +168,20 @@ router.post('/register', [
       await tenantPool.query(
         'INSERT INTO teachers (user_id, first_name, last_name, email) VALUES ($1, $2, $3, $4)',
         [user.id, name.split(' ')[0], name.split(' ').slice(1).join(' ') || '', email]
+      );
+    }
+
+    // Assign appropriate role to the user
+    const roleName = role.toUpperCase();
+    const roleResult = await tenantPool.query(
+      'SELECT id FROM roles WHERE name = $1',
+      [roleName]
+    );
+    
+    if (roleResult.rows.length > 0) {
+      await tenantPool.query(
+        'INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)',
+        [user.id, roleResult.rows[0].id]
       );
     }
 

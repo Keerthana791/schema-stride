@@ -9,7 +9,8 @@ import {
   GraduationCap,
   Bell,
   LogOut,
-  Menu
+  Menu,
+  Settings
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -23,7 +24,7 @@ const Layout = ({ children }: LayoutProps) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navItems = [
@@ -34,6 +35,11 @@ const Layout = ({ children }: LayoutProps) => {
     { path: "/grades", icon: GraduationCap, label: "Grades" },
     { path: "/notifications", icon: Bell, label: "Notifications" },
   ];
+
+  // Add admin navigation for admin users
+  if (user?.role === 'admin') {
+    navItems.push({ path: "/admin", icon: Settings, label: "Admin Panel" });
+  }
 
   const handleLogout = async () => {
     await logout();

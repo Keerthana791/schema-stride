@@ -65,6 +65,29 @@ const createTenantSchema = async (tenantId, schemaName) => {
     
     // Create tables in tenant schema
     const schemaSQL = `
+      -- Roles table (tenant-specific roles)
+      CREATE TABLE IF NOT EXISTS ${schemaName}.roles (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(50) NOT NULL UNIQUE,
+        description TEXT,
+        permissions JSONB DEFAULT '[]',
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- User roles table (many-to-many between users and roles)
+      CREATE TABLE IF NOT EXISTS ${schemaName}.user_roles (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL,
+        role_id UUID NOT NULL REFERENCES ${schemaName}.roles(id) ON DELETE CASCADE,
+        assigned_by UUID,
+        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        is_active BOOLEAN DEFAULT true,
+        UNIQUE(user_id, role_id)
+      );
+
       -- Students table
       CREATE TABLE IF NOT EXISTS ${schemaName}.students (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -236,6 +259,9 @@ const createTenantSchema = async (tenantId, schemaName) => {
       );
 
       -- Create indexes for better performance
+      CREATE INDEX IF NOT EXISTS idx_roles_name ON ${schemaName}.roles(name);
+      CREATE INDEX IF NOT EXISTS idx_user_roles_user ON ${schemaName}.user_roles(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_roles_role ON ${schemaName}.user_roles(role_id);
       CREATE INDEX IF NOT EXISTS idx_students_email ON ${schemaName}.students(email);
       CREATE INDEX IF NOT EXISTS idx_teachers_email ON ${schemaName}.teachers(email);
       CREATE INDEX IF NOT EXISTS idx_courses_teacher ON ${schemaName}.courses(teacher_id);
@@ -249,9 +275,78 @@ const createTenantSchema = async (tenantId, schemaName) => {
     `;
 
     await mainPool.query(schemaSQL);
+    
+    // Seed default roles
+    await seedDefaultRoles(schemaName);
+    
     console.log(`✅ Tenant schema '${schemaName}' created successfully`);
   } catch (error) {
     console.error(`❌ Error creating tenant schema '${schemaName}':`, error);
+    throw error;
+  }
+};
+
+// Seed default roles for a tenant
+const seedDefaultRoles = async (schemaName) => {
+  const mainPool = getMainPool();
+  
+  try {
+    // Define default roles with permissions
+    const defaultRoles = [
+      {
+        name: 'ADMIN',
+        description: 'Full system administration access',
+        permissions: [
+          'users:create', 'users:read', 'users:update', 'users:delete',
+          'courses:create', 'courses:read', 'courses:update', 'courses:delete',
+          'assignments:create', 'assignments:read', 'assignments:update', 'assignments:delete',
+          'quizzes:create', 'quizzes:read', 'quizzes:update', 'quizzes:delete',
+          'grades:create', 'grades:read', 'grades:update', 'grades:delete',
+          'notifications:create', 'notifications:read', 'notifications:update', 'notifications:delete',
+          'files:create', 'files:read', 'files:update', 'files:delete',
+          'system:admin'
+        ]
+      },
+      {
+        name: 'TEACHER',
+        description: 'Course and content management access',
+        permissions: [
+          'courses:create', 'courses:read', 'courses:update',
+          'assignments:create', 'assignments:read', 'assignments:update', 'assignments:delete',
+          'quizzes:create', 'quizzes:read', 'quizzes:update', 'quizzes:delete',
+          'grades:create', 'grades:read', 'grades:update',
+          'notifications:create', 'notifications:read',
+          'files:create', 'files:read', 'files:update', 'files:delete',
+          'students:read'
+        ]
+      },
+      {
+        name: 'STUDENT',
+        description: 'Basic student access to courses and assignments',
+        permissions: [
+          'courses:read',
+          'assignments:read', 'assignments:submit',
+          'quizzes:read', 'quizzes:submit',
+          'grades:read',
+          'notifications:read',
+          'files:read'
+        ]
+      }
+    ];
+
+    // Insert default roles
+    for (const role of defaultRoles) {
+      await mainPool.query(
+        `INSERT INTO ${schemaName}.roles (name, description, permissions) 
+         VALUES ($1, $2, $3) 
+         ON CONFLICT (name) DO NOTHING`,
+        [role.name, role.description, JSON.stringify(role.permissions)]
+      );
+    }
+
+    console.log(`✅ Default roles seeded for schema '${schemaName}'`);
+  } catch (error) {
+    console.error(`❌ Error seeding roles for schema '${schemaName}':`, error);
     throw error;
   }
 };

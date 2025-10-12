@@ -18,6 +18,8 @@ import gradeRoutes from './routes/grades.js';
 import notificationRoutes from './routes/notifications.js';
 import userRoutes from './routes/users.js';
 import uploadRoutes from './routes/upload.js';
+import dashboardRoutes from './routes/dashboard.js';
+import userManagementRoutes from './routes/userManagement.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -79,6 +81,8 @@ app.use('/api/grades', tenantResolver, gradeRoutes);
 app.use('/api/notifications', tenantResolver, notificationRoutes);
 app.use('/api/users', tenantResolver, userRoutes);
 app.use('/api/upload', tenantResolver, uploadRoutes);
+app.use('/api/dashboard', tenantResolver, dashboardRoutes);
+app.use('/api/admin', tenantResolver, userManagementRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
