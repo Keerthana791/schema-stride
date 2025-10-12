@@ -29,14 +29,29 @@ const Login = () => {
           .select('institution_id, name')
           .order('name');
 
-        if (error) throw error;
+        if (error) {
+          console.error('Failed to load institutions:', error);
+          toast({
+            title: "Failed to load institutions",
+            description: error.message,
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        console.log('Loaded institutions:', data);
         setInstitutions(data || []);
       } catch (error) {
         console.error('Failed to load institutions:', error);
+        toast({
+          title: "Failed to load institutions",
+          description: error instanceof Error ? error.message : "Unknown error",
+          variant: "destructive",
+        });
       }
     };
     loadInstitutions();
-  }, []);
+  }, [toast]);
 
   // Redirect if already authenticated
   useEffect(() => {
