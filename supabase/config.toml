@@ -1,1 +1,7 @@
 project_id = "obeqwhrlckulceprnbaz"
+
+[functions.register-institution]
+verify_jwt = false
+
+[functions.verify-institution]
+verify_jwt = false
