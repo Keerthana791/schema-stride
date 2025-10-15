@@ -12,7 +12,7 @@ class ApiClient {
   }
 
   private getAuthToken(): string | null {
-    return localStorage.getItem('access_token');
+    return localStorage.getItem('accessToken');
   }
 
   private async request<T>(

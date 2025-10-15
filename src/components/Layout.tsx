@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { 
@@ -12,9 +12,9 @@ import {
   Menu,
   Settings
 } from "lucide-react";
-import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import API_CONFIG from "@/config/api";
 
 interface LayoutProps {
   children: ReactNode;
@@ -26,6 +26,27 @@ const Layout = ({ children }: LayoutProps) => {
   const { toast } = useToast();
   const { logout, user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [institutionName, setInstitutionName] = useState("Engineering LMS");
+
+  // Load tenant/institution name for the logged-in user
+  useEffect(() => {
+    const loadTenant = async () => {
+      try {
+        const token = localStorage.getItem('accessToken');
+        if (!token) return;
+        const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.TENANT_INFO}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setInstitutionName(data?.tenant?.institution_name || "Engineering LMS");
+      } catch {
+        // keep default title on failure
+      }
+    };
+    loadTenant();
+  }, []);
 
   const navItems = [
     { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
@@ -57,7 +78,7 @@ const Layout = ({ children }: LayoutProps) => {
         <div className="flex h-full flex-col">
           {/* Logo */}
           <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-6">
-            <h1 className="text-xl font-bold">Engineering LMS</h1>
+            <h1 className="text-xl font-bold">{institutionName}</h1>
             <Button
               variant="ghost"
               size="icon"

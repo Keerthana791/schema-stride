@@ -25,14 +25,18 @@ import userManagementRoutes from './routes/userManagement.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { tenantResolver } from './middleware/tenantResolver.js';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables (override any pre-set env like system PORT)
+dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../.env'), override: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Avoid binding to DB_PORT (e.g., 5432) if PORT is accidentally set to it
+const resolvedPort = (process.env.PORT && process.env.PORT !== process.env.DB_PORT)
+  ? process.env.PORT
+  : '3000';
+const PORT = resolvedPort;
 
 // Security middleware
 app.use(helmet({
@@ -47,9 +51,23 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// CORS configuration
+// CORS configuration with allowlist support
+const defaultOrigins = ['http://localhost:5173', 'http://localhost:8080'];
+const envOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+const allowlist = new Set([...defaultOrigins, ...envOrigins]);
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // allow non-browser or same-origin
+    if (allowlist.has(origin)) return callback(null, true);
+    // allow 127.0.0.1 with any port and localhost with any port
+    if (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return callback(null, true);
+    if (/^http:\/\/localhost:\d+$/.test(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 

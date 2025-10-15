@@ -1,89 +1,86 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import type { User, Session } from '@supabase/supabase-js';
+import API_CONFIG from '@/config/api';
 
 interface UserProfile {
   id: string;
-  user_id: string;
+  user_id?: string;
   name: string;
   email: string;
   role: 'admin' | 'teacher' | 'student';
-  institution_id: string;
+  institution_id?: string;
 }
 
 interface AuthContextType {
-  user: User | null;
+  user: any | null;
   profile: UserProfile | null;
-  session: Session | null;
+  session: null;
   isLoading: boolean;
   isAuthenticated: boolean;
   logout: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [session] = useState<null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const refresh = async () => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setUser(null);
+      setProfile(null);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.ME}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        localStorage.removeItem('accessToken');
+        setUser(null);
+        setProfile(null);
+        return;
+      }
+      const data = await res.json();
+      setUser(data.user || null);
+      setProfile(null);
+    } catch (e) {
+      localStorage.removeItem('accessToken');
+      setUser(null);
+      setProfile(null);
+    }
+  };
+
   useEffect(() => {
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          // Fetch user profile
-          setTimeout(async () => {
-            const { data: profileData } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('user_id', session.user.id)
-              .single();
-            
-            if (profileData) {
-              setProfile(profileData as UserProfile);
-            }
-          }, 0);
-        } else {
-          setProfile(null);
-        }
-      }
-    );
-
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .single()
-          .then(({ data }) => {
-            if (data) {
-              setProfile(data as UserProfile);
-            }
-            setIsLoading(false);
-          });
-      } else {
-        setIsLoading(false);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    const init = async () => {
+      await refresh();
+      setIsLoading(false);
+    };
+    init();
   }, []);
 
   const logout = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-    setSession(null);
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.LOGOUT}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          credentials: 'include',
+        });
+      }
+    } catch (e) {
+      // ignore
+    } finally {
+      localStorage.removeItem('accessToken');
+      setUser(null);
+      setProfile(null);
+    }
   };
 
   return (
@@ -91,10 +88,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         profile,
-        session,
+        session: null,
         isLoading,
         isAuthenticated: !!user,
         logout,
+        refresh,
       }}
     >
       {children}

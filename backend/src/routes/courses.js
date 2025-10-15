@@ -10,6 +10,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
   try {
     const { role, id: userId } = req.user;
     const tenantPool = req.tenantPool;
+    const { branch } = req.query;
 
     let query, params;
 
@@ -17,28 +18,34 @@ router.get('/', authenticateToken, async (req, res, next) => {
       // Students see only enrolled courses
       query = `
         SELECT c.*, t.first_name, t.last_name, t.email as teacher_email,
+               b.name as branch_name,
                e.enrollment_date, e.status as enrollment_status
         FROM courses c
         JOIN teachers t ON c.teacher_id = t.id
+        JOIN branches b ON c.branch_id = b.id
         JOIN enrollments e ON c.id = e.course_id
         JOIN students s ON e.student_id = s.id
         WHERE s.user_id = $1 AND c.is_active = true
+        ${branch ? 'AND b.name = $2' : ''}
         ORDER BY c.created_at DESC
       `;
-      params = [userId];
+      params = branch ? [userId, branch] : [userId];
     } else {
       // Teachers and admins see all courses
       query = `
         SELECT c.*, t.first_name, t.last_name, t.email as teacher_email,
+               b.name as branch_name,
                COUNT(e.id) as enrollment_count
         FROM courses c
         JOIN teachers t ON c.teacher_id = t.id
+        JOIN branches b ON c.branch_id = b.id
         LEFT JOIN enrollments e ON c.id = e.course_id AND e.status = 'active'
         WHERE c.is_active = true
+        ${branch ? 'AND b.name = $1' : ''}
         GROUP BY c.id, t.first_name, t.last_name, t.email
         ORDER BY c.created_at DESC
       `;
-      params = [];
+      params = branch ? [branch] : [];
     }
 
     const result = await tenantPool.query(query, params);
@@ -64,9 +71,11 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       // Students can only see enrolled courses
       query = `
         SELECT c.*, t.first_name, t.last_name, t.email as teacher_email,
+               b.name as branch_name,
                e.enrollment_date, e.status as enrollment_status
         FROM courses c
         JOIN teachers t ON c.teacher_id = t.id
+        JOIN branches b ON c.branch_id = b.id
         JOIN enrollments e ON c.id = e.course_id
         JOIN students s ON e.student_id = s.id
         WHERE c.id = $1 AND s.user_id = $2 AND c.is_active = true
@@ -75,9 +84,11 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
     } else {
       // Teachers and admins can see any course
       query = `
-        SELECT c.*, t.first_name, t.last_name, t.email as teacher_email
+        SELECT c.*, t.first_name, t.last_name, t.email as teacher_email,
+               b.name as branch_name
         FROM courses c
         JOIN teachers t ON c.teacher_id = t.id
+        JOIN branches b ON c.branch_id = b.id
         WHERE c.id = $1 AND c.is_active = true
       `;
       params = [id];
@@ -104,7 +115,8 @@ router.post('/', [
   body('description').optional().isLength({ max: 1000 }).withMessage('Description must be less than 1000 characters'),
   body('credits').optional().isInt({ min: 1, max: 10 }).withMessage('Credits must be between 1-10'),
   body('semester').optional().isLength({ max: 20 }).withMessage('Semester must be less than 20 characters'),
-  body('academicYear').optional().isLength({ max: 10 }).withMessage('Academic year must be less than 10 characters')
+  body('academicYear').optional().isLength({ max: 10 }).withMessage('Academic year must be less than 10 characters'),
+  body('branch').isLength({ min: 2, max: 100 }).withMessage('Branch is required')
 ], authenticateToken, authorize('admin', 'teacher'), async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -112,7 +124,7 @@ router.post('/', [
       throw new ValidationError(errors.array()[0].msg);
     }
 
-    const { courseCode, title, description, credits, semester, academicYear } = req.body;
+    const { courseCode, title, description, credits, semester, academicYear, branch } = req.body;
     const { id: userId, role } = req.user;
     const tenantPool = req.tenantPool;
 
@@ -136,11 +148,24 @@ router.post('/', [
       teacherId = assignedTeacherId;
     }
 
+    // Resolve or create branch within tenant
+    let branchId;
+    const branchRes = await tenantPool.query('SELECT id FROM branches WHERE name = $1 AND is_active = true', [branch]);
+    if (branchRes.rows.length > 0) {
+      branchId = branchRes.rows[0].id;
+    } else {
+      const ins = await tenantPool.query(
+        'INSERT INTO branches (name, code) VALUES ($1, $2) RETURNING id',
+        [branch, branch?.substring(0, 10).toUpperCase()]
+      );
+      branchId = ins.rows[0].id;
+    }
+
     const result = await tenantPool.query(
-      `INSERT INTO courses (course_code, title, description, teacher_id, credits, semester, academic_year)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO courses (course_code, title, description, teacher_id, branch_id, credits, semester, academic_year)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [courseCode, title, description, teacherId, credits || 3, semester, academicYear]
+      [courseCode, title, description, teacherId, branchId, credits || 3, semester, academicYear]
     );
 
     res.status(201).json({
@@ -158,7 +183,8 @@ router.put('/:id', [
   body('description').optional().isLength({ max: 1000 }).withMessage('Description must be less than 1000 characters'),
   body('credits').optional().isInt({ min: 1, max: 10 }).withMessage('Credits must be between 1-10'),
   body('semester').optional().isLength({ max: 20 }).withMessage('Semester must be less than 20 characters'),
-  body('academicYear').optional().isLength({ max: 10 }).withMessage('Academic year must be less than 10 characters')
+  body('academicYear').optional().isLength({ max: 10 }).withMessage('Academic year must be less than 10 characters'),
+  body('branch').optional().isLength({ min: 2, max: 100 }).withMessage('Branch must be valid')
 ], authenticateToken, authorize('admin', 'teacher'), async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -168,7 +194,7 @@ router.put('/:id', [
 
     const { id } = req.params;
     const { id: userId, role } = req.user;
-    const { title, description, credits, semester, academicYear } = req.body;
+    const { title, description, credits, semester, academicYear, branch } = req.body;
     const tenantPool = req.tenantPool;
 
     // Check if course exists and user has permission
@@ -218,6 +244,23 @@ router.put('/:id', [
     if (academicYear) {
       updateFields.push(`academic_year = $${paramCount}`);
       values.push(academicYear);
+      paramCount++;
+    }
+    if (branch) {
+      // resolve/create branch
+      let branchId;
+      const branchRes = await tenantPool.query('SELECT id FROM branches WHERE name = $1 AND is_active = true', [branch]);
+      if (branchRes.rows.length > 0) {
+        branchId = branchRes.rows[0].id;
+      } else {
+        const ins = await tenantPool.query(
+          'INSERT INTO branches (name, code) VALUES ($1, $2) RETURNING id',
+          [branch, branch?.substring(0, 10).toUpperCase()]
+        );
+        branchId = ins.rows[0].id;
+      }
+      updateFields.push(`branch_id = $${paramCount}`);
+      values.push(branchId);
       paramCount++;
     }
 

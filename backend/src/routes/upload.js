@@ -5,6 +5,7 @@ import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { authenticateToken, authorize } from '../middleware/auth.js';
 import { ValidationError, NotFoundError } from '../middleware/errorHandler.js';
+import { body } from 'express-validator';
 
 const router = express.Router();
 

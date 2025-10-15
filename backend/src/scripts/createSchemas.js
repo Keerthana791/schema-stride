@@ -11,6 +11,9 @@ const createMainSchema = async () => {
   const mainPool = getMainPool();
   
   try {
+    // Ensure pgcrypto extension is available for gen_random_uuid()
+    await mainPool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+
     // Create tenant mapping table
     await mainPool.query(`
       CREATE TABLE IF NOT EXISTS tenant_mapping (
@@ -120,6 +123,17 @@ const createTenantSchema = async (tenantId, schemaName) => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- Branches table
+      CREATE TABLE IF NOT EXISTS ${schemaName}.branches (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(100) NOT NULL,
+        code VARCHAR(20),
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_branch_name UNIQUE (name)
+      );
+
       -- Courses table
       CREATE TABLE IF NOT EXISTS ${schemaName}.courses (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -127,6 +141,7 @@ const createTenantSchema = async (tenantId, schemaName) => {
         title VARCHAR(200) NOT NULL,
         description TEXT,
         teacher_id UUID NOT NULL REFERENCES ${schemaName}.teachers(id),
+        branch_id UUID NOT NULL REFERENCES ${schemaName}.branches(id),
         credits INTEGER DEFAULT 3,
         semester VARCHAR(20),
         academic_year VARCHAR(10),
@@ -265,6 +280,7 @@ const createTenantSchema = async (tenantId, schemaName) => {
       CREATE INDEX IF NOT EXISTS idx_students_email ON ${schemaName}.students(email);
       CREATE INDEX IF NOT EXISTS idx_teachers_email ON ${schemaName}.teachers(email);
       CREATE INDEX IF NOT EXISTS idx_courses_teacher ON ${schemaName}.courses(teacher_id);
+      CREATE INDEX IF NOT EXISTS idx_courses_branch ON ${schemaName}.courses(branch_id);
       CREATE INDEX IF NOT EXISTS idx_enrollments_student ON ${schemaName}.enrollments(student_id);
       CREATE INDEX IF NOT EXISTS idx_enrollments_course ON ${schemaName}.enrollments(course_id);
       CREATE INDEX IF NOT EXISTS idx_assignments_course ON ${schemaName}.assignments(course_id);

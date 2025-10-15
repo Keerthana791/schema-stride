@@ -9,38 +9,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { GraduationCap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import API_CONFIG from "@/config/api";
 
 const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
-  const [institutions, setInstitutions] = useState<Array<{ institution_id: string; name: string }>>([]);
-  const [institutionPassword, setInstitutionPassword] = useState("");
+  const [institutions, setInstitutions] = useState<Array<{ tenant_id: string; institution_name: string }>>([]);
   const [selectedInstitution, setSelectedInstitution] = useState("");
 
-  // Load available institutions
+  // Load available tenants from backend
   useEffect(() => {
     const loadInstitutions = async () => {
       try {
-        const { data, error } = await supabase
-          .from('institutions')
-          .select('institution_id, name')
-          .order('name');
-
-        if (error) {
-          console.error('Failed to load institutions:', error);
-          toast({
-            title: "Failed to load institutions",
-            description: error.message,
-            variant: "destructive",
-          });
-          return;
-        }
-        
-        console.log('Loaded institutions:', data);
-        setInstitutions(data || []);
+        const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.TENANTS}`);
+        if (!res.ok) throw new Error('Failed to load institutions');
+        const json = await res.json();
+        setInstitutions(json.tenants || []);
       } catch (error) {
         console.error('Failed to load institutions:', error);
         toast({
@@ -69,17 +55,22 @@ const Login = () => {
     const password = formData.get('password') as string;
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.LOGIN}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       });
-
-      if (error) throw error;
-
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Login failed');
+      if (data.accessToken) {
+        localStorage.setItem('accessToken', data.accessToken);
+      }
       toast({
         title: "Login successful",
         description: "Welcome back to Engineering LMS",
       });
+      // Ensure AuthContext has current user before hitting ProtectedRoute
+      await refresh();
       navigate("/dashboard");
     } catch (error) {
       toast({
@@ -107,68 +98,32 @@ const Login = () => {
         throw new Error('Please select an institution');
       }
 
-      if (!institutionPassword) {
-        throw new Error('Please enter institution password');
-      }
-
-      // Verify institution password
-      const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-institution', {
-        body: {
-          institutionId: selectedInstitution,
-          institutionPassword,
-        },
+      // Register user in backend
+      const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.REGISTER}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name, role, tenantId: selectedInstitution }),
       });
+      const reg = await res.json();
+      if (!res.ok) throw new Error(reg.message || 'Signup failed');
 
-      if (verifyError || !verifyData?.valid) {
-        throw new Error('Invalid institution password');
-      }
-
-      // Create user with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-          data: {
-            name,
-            institution_id: selectedInstitution,
-            role,
-          },
-        },
+      // Auto-login after registration
+      const loginRes = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.LOGIN}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       });
-
-      if (authError) throw authError;
-
-      if (authData.user) {
-        // Create profile
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            user_id: authData.user.id,
-            institution_id: selectedInstitution,
-            name,
-            email,
-            role,
-          });
-
-        if (profileError) throw profileError;
-
-        // Add user role
-        const { error: roleError } = await supabase
-          .from('user_roles')
-          .insert({
-            user_id: authData.user.id,
-            role,
-          });
-
-        if (roleError) throw roleError;
-
-        toast({
-          title: "Account created",
-          description: "Your account has been created successfully",
-        });
-        navigate("/dashboard");
+      const loginData = await loginRes.json();
+      if (!loginRes.ok) throw new Error(loginData.message || 'Login after signup failed');
+      if (loginData.accessToken) {
+        localStorage.setItem('accessToken', loginData.accessToken);
       }
+
+      toast({
+        title: "Account created",
+        description: "Your account has been created successfully",
+      });
+      navigate("/dashboard");
     } catch (error) {
       toast({
         title: "Signup failed",
@@ -267,31 +222,17 @@ const Login = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {institutions.map((inst) => (
-                          <SelectItem key={inst.institution_id} value={inst.institution_id}>
-                            {inst.name}
+                          <SelectItem key={inst.tenant_id} value={inst.tenant_id}>
+                            {inst.institution_name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="signup-institution-password">Institution Password</Label>
-                    <Input
-                      id="signup-institution-password"
-                      type="password"
-                      placeholder="Enter institution password"
-                      value={institutionPassword}
-                      onChange={(e) => setInstitutionPassword(e.target.value)}
-                      required
-                    />
-                    <p className="text-xs text-gray-500">
-                      Ask your institution admin for the password
-                    </p>
-                  </div>
-                  <div className="space-y-2">
                     <Label htmlFor="signup-role">Role</Label>
                     <Select name="role" required>
-                      <SelectTrigger>
+                      <SelectTrigger id="signup-role">
                         <SelectValue placeholder="Select your role" />
                       </SelectTrigger>
                       <SelectContent>

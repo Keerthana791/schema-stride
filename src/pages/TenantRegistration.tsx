@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import API_CONFIG from '@/config/api';
 
 const tenantRegistrationSchema = z.object({
   institutionId: z.string().min(3, 'Institution ID must be at least 3 characters').max(50, 'Institution ID must be less than 50 characters'),
@@ -41,33 +41,32 @@ const TenantRegistration = () => {
     setError(null);
 
     try {
-      // Call edge function to register institution
-      const { data: registerData, error: registerError } = await supabase.functions.invoke('register-institution', {
-        body: {
-          institutionId: data.institutionId,
+      // Register tenant via backend
+      const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.REGISTER_TENANT}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId: data.institutionId,
           institutionName: data.institutionName,
-          institutionPassword: data.institutionPassword,
           adminEmail: data.adminEmail,
           adminPassword: data.adminPassword,
           adminName: data.adminName,
-        },
+        }),
       });
+      const reg = await res.json();
+      if (!res.ok) throw new Error(reg.message || 'Institution registration failed');
 
-      if (registerError) {
-        throw new Error(registerError.message);
-      }
-
-      if (!registerData?.success) {
-        throw new Error('Institution registration failed');
-      }
-
-      // Sign in the admin user
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: data.adminEmail,
-        password: data.adminPassword,
+      // Login admin
+      const loginRes = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.LOGIN}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: data.adminEmail, password: data.adminPassword }),
       });
-
-      if (signInError) throw signInError;
+      const loginData = await loginRes.json();
+      if (!loginRes.ok) throw new Error(loginData.message || 'Login failed');
+      if (loginData.accessToken) {
+        localStorage.setItem('accessToken', loginData.accessToken);
+      }
 
       toast({
         title: 'Success',

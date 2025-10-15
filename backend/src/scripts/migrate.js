@@ -1,5 +1,6 @@
 import { initializeDatabase, createTenant } from './createSchemas.js';
 import { getMainPool } from '../config/database.js';
+import { pathToFileURL } from 'url';
 
 // Run database migrations
 const runMigrations = async () => {
@@ -28,8 +29,9 @@ const runMigrations = async () => {
   }
 };
 
-// Run if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run if called directly (Windows-safe path comparison)
+const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;
+if (!process.env.MIGRATE_AS_LIBRARY && (invokedPath === import.meta.url || invokedPath === null)) {
   runMigrations()
     .then(() => {
       console.log('Migration completed');
