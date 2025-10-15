@@ -41,6 +41,10 @@ const Layout = ({ children }: LayoutProps) => {
         if (!res.ok) return;
         const data = await res.json();
         setInstitutionName(data?.tenant?.institution_name || "Engineering LMS");
+        const tid = data?.tenant?.tenant_id;
+        if (tid) {
+          localStorage.setItem('tenantId', tid);
+        }
       } catch {
         // keep default title on failure
       }

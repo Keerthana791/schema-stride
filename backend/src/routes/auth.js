@@ -14,7 +14,8 @@ router.post('/register-tenant', [
   body('institutionName').isLength({ min: 3, max: 200 }).withMessage('Institution name must be 3-200 characters'),
   body('adminEmail').isEmail().withMessage('Valid email required'),
   body('adminPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-  body('adminName').isLength({ min: 2, max: 100 }).withMessage('Name must be 2-100 characters')
+  body('adminName').isLength({ min: 2, max: 100 }).withMessage('Name must be 2-100 characters'),
+  body('institutionPassword').isLength({ min: 6 }).withMessage('Institution password must be at least 6 characters')
 ], async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -22,7 +23,7 @@ router.post('/register-tenant', [
       throw new ValidationError(errors.array()[0].msg);
     }
 
-    const { tenantId, institutionName, adminEmail, adminPassword, adminName } = req.body;
+    const { tenantId, institutionName, adminEmail, adminPassword, adminName, institutionPassword } = req.body;
     const mainPool = getMainPool();
 
     // Check if tenant already exists
@@ -45,9 +46,10 @@ router.post('/register-tenant', [
       return res.status(409).json({ message: 'Email already registered' });
     }
 
-    // Create tenant schema
+    // Create tenant schema with institution password hash
     const { createTenant } = await import('../scripts/createSchemas.js');
-    await createTenant(tenantId, institutionName);
+    const institutionPasswordHash = await bcrypt.hash(institutionPassword, 12);
+    await createTenant(tenantId, institutionName, institutionPasswordHash);
 
     // Hash password
     const saltRounds = 12;
@@ -112,7 +114,8 @@ router.post('/register', [
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
   body('name').isLength({ min: 2, max: 100 }).withMessage('Name must be 2-100 characters'),
   body('role').isIn(['teacher', 'student']).withMessage('Role must be teacher or student'),
-  body('tenantId').isLength({ min: 3, max: 50 }).withMessage('Tenant ID must be 3-50 characters')
+  body('tenantId').isLength({ min: 3, max: 50 }).withMessage('Tenant ID must be 3-50 characters'),
+  body('institutionPassword').isLength({ min: 6 }).withMessage('Institution password must be at least 6 characters')
 ], async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -120,12 +123,12 @@ router.post('/register', [
       throw new ValidationError(errors.array()[0].msg);
     }
 
-    const { email, password, name, role, tenantId } = req.body;
+    const { email, password, name, role, tenantId, institutionPassword } = req.body;
     const mainPool = getMainPool();
 
     // Verify tenant exists
     const tenantResult = await mainPool.query(
-      'SELECT tenant_id FROM tenant_mapping WHERE tenant_id = $1',
+      'SELECT tenant_id, institution_password_hash FROM tenant_mapping WHERE tenant_id = $1',
       [tenantId]
     );
 

@@ -20,6 +20,7 @@ import userRoutes from './routes/users.js';
 import uploadRoutes from './routes/upload.js';
 import dashboardRoutes from './routes/dashboard.js';
 import userManagementRoutes from './routes/userManagement.js';
+import lectureRoutes from './routes/lectures.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -101,6 +102,7 @@ app.use('/api/users', tenantResolver, userRoutes);
 app.use('/api/upload', tenantResolver, uploadRoutes);
 app.use('/api/dashboard', tenantResolver, dashboardRoutes);
 app.use('/api/admin', tenantResolver, userManagementRoutes);
+app.use('/api', tenantResolver, lectureRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

@@ -20,9 +20,23 @@ const createMainSchema = async () => {
         tenant_id VARCHAR(50) PRIMARY KEY,
         schema_name VARCHAR(100) NOT NULL UNIQUE,
         institution_name VARCHAR(200) NOT NULL,
+        institution_password_hash VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    // For existing databases: add column if missing
+    await mainPool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name='tenant_mapping' AND column_name='institution_password_hash'
+        ) THEN
+          ALTER TABLE tenant_mapping ADD COLUMN institution_password_hash VARCHAR(255);
+        END IF;
+      END$$;
     `);
 
     // Create users table in main database
@@ -148,6 +162,20 @@ const createTenantSchema = async (tenantId, schemaName) => {
         is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Lectures table (video lectures per course)
+      CREATE TABLE IF NOT EXISTS ${schemaName}.lectures (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        course_id UUID NOT NULL REFERENCES ${schemaName}.courses(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT,
+        video_path TEXT NOT NULL,
+        duration_sec INT,
+        visibility TEXT NOT NULL DEFAULT 'enrolled',
+        created_by UUID NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
 
       -- Enrollments table
@@ -281,6 +309,8 @@ const createTenantSchema = async (tenantId, schemaName) => {
       CREATE INDEX IF NOT EXISTS idx_teachers_email ON ${schemaName}.teachers(email);
       CREATE INDEX IF NOT EXISTS idx_courses_teacher ON ${schemaName}.courses(teacher_id);
       CREATE INDEX IF NOT EXISTS idx_courses_branch ON ${schemaName}.courses(branch_id);
+      CREATE INDEX IF NOT EXISTS idx_lectures_course ON ${schemaName}.lectures(course_id);
+      CREATE INDEX IF NOT EXISTS idx_lectures_created ON ${schemaName}.lectures(created_at);
       CREATE INDEX IF NOT EXISTS idx_enrollments_student ON ${schemaName}.enrollments(student_id);
       CREATE INDEX IF NOT EXISTS idx_enrollments_course ON ${schemaName}.enrollments(course_id);
       CREATE INDEX IF NOT EXISTS idx_assignments_course ON ${schemaName}.assignments(course_id);
@@ -368,15 +398,15 @@ const seedDefaultRoles = async (schemaName) => {
 };
 
 // Create a new tenant
-export const createTenant = async (tenantId, institutionName) => {
+export const createTenant = async (tenantId, institutionName, institutionPasswordHash = null) => {
   const schemaName = `${tenantId}_schema`;
   
   try {
     // Create tenant mapping entry
     const mainPool = getMainPool();
     await mainPool.query(
-      'INSERT INTO tenant_mapping (tenant_id, schema_name, institution_name) VALUES ($1, $2, $3)',
-      [tenantId, schemaName, institutionName]
+      'INSERT INTO tenant_mapping (tenant_id, schema_name, institution_name, institution_password_hash) VALUES ($1, $2, $3, $4)',
+      [tenantId, schemaName, institutionName, institutionPasswordHash]
     );
 
     // Create tenant schema

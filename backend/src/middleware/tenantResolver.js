@@ -15,7 +15,7 @@ export const tenantResolver = async (req, res, next) => {
       }
     }
 
-    // Method 2: Extract from JWT token
+    // Method 2: Extract from JWT token (Authorization header)
     if (!tenantId) {
       const authHeader = req.get('Authorization');
       if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -27,6 +27,16 @@ export const tenantResolver = async (req, res, next) => {
           // Token might be invalid, but we'll let auth middleware handle it
           console.log('JWT verification failed in tenant resolver:', jwtError.message);
         }
+      }
+    }
+
+    // Method 2b: Extract from JWT token present as query param (e.g., /stream?token=...)
+    if (!tenantId && req.query && req.query.token) {
+      try {
+        const decoded = jwt.verify(req.query.token, process.env.JWT_SECRET);
+        tenantId = decoded.tenantId;
+      } catch (jwtError) {
+        console.log('JWT (query) verification failed in tenant resolver:', jwtError.message);
       }
     }
 

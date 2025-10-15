@@ -11,7 +11,10 @@ import TenantRegistration from "./pages/TenantRegistration";
 import Dashboard from "./pages/Dashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import Courses from "./pages/Courses";
+import LecturesListPage from "./pages/LecturesListPage";
+import LecturePlayerPage from "./pages/LecturePlayerPage";
 import Assignments from "./pages/Assignments";
+import CourseForm from "./pages/CourseForm";
 import Quizzes from "./pages/Quizzes";
 import Grades from "./pages/Grades";
 import Notifications from "./pages/Notifications";
@@ -33,6 +36,9 @@ const App = () => (
             <Route path="/dashboard" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute><Layout><AdminDashboard /></Layout></ProtectedRoute>} />
             <Route path="/courses" element={<ProtectedRoute><Layout><Courses /></Layout></ProtectedRoute>} />
+            <Route path="/courses/new" element={<ProtectedRoute><Layout><CourseForm /></Layout></ProtectedRoute>} />
+            <Route path="/courses/:courseId/lectures" element={<ProtectedRoute><Layout><LecturesListPage /></Layout></ProtectedRoute>} />
+            <Route path="/courses/:courseId/lectures/:lectureId" element={<ProtectedRoute><Layout><LecturePlayerPage /></Layout></ProtectedRoute>} />
             <Route path="/assignments" element={<ProtectedRoute><Layout><Assignments /></Layout></ProtectedRoute>} />
             <Route path="/quizzes" element={<ProtectedRoute><Layout><Quizzes /></Layout></ProtectedRoute>} />
             <Route path="/grades" element={<ProtectedRoute><Layout><Grades /></Layout></ProtectedRoute>} />

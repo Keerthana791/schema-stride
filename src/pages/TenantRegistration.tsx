@@ -48,6 +48,7 @@ const TenantRegistration = () => {
         body: JSON.stringify({
           tenantId: data.institutionId,
           institutionName: data.institutionName,
+          institutionPassword: data.institutionPassword,
           adminEmail: data.adminEmail,
           adminPassword: data.adminPassword,
           adminName: data.adminName,

@@ -42,7 +42,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
         LEFT JOIN enrollments e ON c.id = e.course_id AND e.status = 'active'
         WHERE c.is_active = true
         ${branch ? 'AND b.name = $1' : ''}
-        GROUP BY c.id, t.first_name, t.last_name, t.email
+        GROUP BY c.id, t.first_name, t.last_name, t.email, b.name
         ORDER BY c.created_at DESC
       `;
       params = branch ? [branch] : [];
@@ -116,7 +116,8 @@ router.post('/', [
   body('credits').optional().isInt({ min: 1, max: 10 }).withMessage('Credits must be between 1-10'),
   body('semester').optional().isLength({ max: 20 }).withMessage('Semester must be less than 20 characters'),
   body('academicYear').optional().isLength({ max: 10 }).withMessage('Academic year must be less than 10 characters'),
-  body('branch').isLength({ min: 2, max: 100 }).withMessage('Branch is required')
+  body('branch').isLength({ min: 2, max: 100 }).withMessage('Branch is required'),
+  body('teacherEmail').optional().isEmail().withMessage('Valid teacher email required')
 ], authenticateToken, authorize('admin', 'teacher'), async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -140,12 +141,19 @@ router.post('/', [
       }
       teacherId = teacherResult.rows[0].id;
     } else {
-      // Admin can assign any teacher
-      const { teacherId: assignedTeacherId } = req.body;
-      if (!assignedTeacherId) {
-        throw new ValidationError('Teacher ID required for admin');
+      // Admin can assign any teacher by email or teacherId (backward compatible)
+      const { teacherId: assignedTeacherId, teacherEmail } = req.body;
+      if (teacherEmail) {
+        const tRes = await tenantPool.query('SELECT id FROM teachers WHERE email = $1', [teacherEmail]);
+        if (tRes.rows.length === 0) {
+          throw new NotFoundError('Teacher with provided email not found');
+        }
+        teacherId = tRes.rows[0].id;
+      } else if (assignedTeacherId) {
+        teacherId = assignedTeacherId;
+      } else {
+        throw new ValidationError('Teacher email is required for admin');
       }
-      teacherId = assignedTeacherId;
     }
 
     // Resolve or create branch within tenant
@@ -184,7 +192,9 @@ router.put('/:id', [
   body('credits').optional().isInt({ min: 1, max: 10 }).withMessage('Credits must be between 1-10'),
   body('semester').optional().isLength({ max: 20 }).withMessage('Semester must be less than 20 characters'),
   body('academicYear').optional().isLength({ max: 10 }).withMessage('Academic year must be less than 10 characters'),
-  body('branch').optional().isLength({ min: 2, max: 100 }).withMessage('Branch must be valid')
+  body('branch').optional().isLength({ min: 2, max: 100 }).withMessage('Branch must be valid'),
+  body('teacherEmail').optional().isEmail().withMessage('Valid teacher email required'),
+  body('teacherId').optional().isString()
 ], authenticateToken, authorize('admin', 'teacher'), async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -194,7 +204,7 @@ router.put('/:id', [
 
     const { id } = req.params;
     const { id: userId, role } = req.user;
-    const { title, description, credits, semester, academicYear, branch } = req.body;
+    const { title, description, credits, semester, academicYear, branch, teacherEmail, teacherId: newTeacherIdRaw } = req.body;
     const tenantPool = req.tenantPool;
 
     // Check if course exists and user has permission
@@ -262,6 +272,23 @@ router.put('/:id', [
       updateFields.push(`branch_id = $${paramCount}`);
       values.push(branchId);
       paramCount++;
+    }
+
+    // Optionally reassign teacher (admin only or teacher reassigning their own? keep admin-only)
+    if (role === 'admin' && (teacherEmail || newTeacherIdRaw)) {
+      let newTeacherId = newTeacherIdRaw;
+      if (teacherEmail) {
+        const tRes = await tenantPool.query('SELECT id FROM teachers WHERE email = $1', [teacherEmail]);
+        if (tRes.rows.length === 0) {
+          throw new NotFoundError('Teacher with provided email not found');
+        }
+        newTeacherId = tRes.rows[0].id;
+      }
+      if (newTeacherId) {
+        updateFields.push(`teacher_id = $${paramCount}`);
+        values.push(newTeacherId);
+        paramCount++;
+      }
     }
 
     if (updateFields.length === 0) {
@@ -356,23 +383,29 @@ router.post('/:id/enroll', authenticateToken, authorize('student'), async (req, 
 
     // Check if already enrolled
     const enrollmentResult = await tenantPool.query(
-      'SELECT id FROM enrollments WHERE student_id = $1 AND course_id = $2',
+      'SELECT id, status FROM enrollments WHERE student_id = $1 AND course_id = $2',
       [studentId, courseId]
     );
 
     if (enrollmentResult.rows.length > 0) {
+      const existing = enrollmentResult.rows[0];
+      if (existing.status !== 'active') {
+        await tenantPool.query(
+          "UPDATE enrollments SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+          [existing.id]
+        );
+        return res.json({ message: 'Enrollment reactivated' });
+      }
       return res.status(409).json({ message: 'Already enrolled in this course' });
     }
 
-    // Enroll student
+    // Enroll student with active status
     await tenantPool.query(
-      'INSERT INTO enrollments (student_id, course_id) VALUES ($1, $2)',
+      "INSERT INTO enrollments (student_id, course_id, status) VALUES ($1, $2, 'active')",
       [studentId, courseId]
     );
 
-    res.status(201).json({
-      message: 'Successfully enrolled in course'
-    });
+    res.status(201).json({ message: 'Successfully enrolled in course' });
   } catch (error) {
     next(error);
   }
@@ -409,6 +442,36 @@ router.get('/:id/enrollments', authenticateToken, authorize('admin', 'teacher'),
     res.json({
       enrollments: result.rows
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// List all available courses in the tenant (students can browse and then enroll)
+router.get('/available/all', authenticateToken, async (req, res, next) => {
+  try {
+    const { role } = req.user;
+    const tenantPool = req.tenantPool;
+    const { branch } = req.query;
+
+    // For all roles, list all active courses; students use this to browse
+    const result = await tenantPool.query(
+      `SELECT c.*, t.first_name, t.last_name, t.email as teacher_email,
+              b.name as branch_name,
+              COALESCE(active_enroll.count, 0) as enrollment_count
+       FROM courses c
+       JOIN teachers t ON c.teacher_id = t.id
+       JOIN branches b ON c.branch_id = b.id
+       LEFT JOIN (
+         SELECT course_id, COUNT(id) as count FROM enrollments WHERE status = 'active' GROUP BY course_id
+       ) as active_enroll ON active_enroll.course_id = c.id
+       WHERE c.is_active = true
+       ${branch ? 'AND b.name = $1' : ''}
+       ORDER BY c.created_at DESC`,
+      branch ? [branch] : []
+    );
+
+    res.json({ courses: result.rows });
   } catch (error) {
     next(error);
   }

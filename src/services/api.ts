@@ -21,10 +21,13 @@ class ApiClient {
   ): Promise<T> {
     const { requiresAuth = true, headers = {}, ...restOptions } = options;
 
+    const tenantId = (typeof window !== 'undefined') ? localStorage.getItem('tenantId') : null;
+
     const config: RequestInit = {
       ...restOptions,
       headers: {
         'Content-Type': 'application/json',
+        ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),
         ...headers,
       },
     };

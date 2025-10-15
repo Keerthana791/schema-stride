@@ -22,7 +22,7 @@ export interface CreateCoursePayload {
   semester?: string;
   academicYear?: string;
   branch: string; // e.g., CSE, ECE
-  teacherId?: string; // required if admin
+  teacherEmail?: string; // required if admin
 }
 
 export interface UpdateCoursePayload extends Partial<CreateCoursePayload> {}
@@ -30,6 +30,25 @@ export interface UpdateCoursePayload extends Partial<CreateCoursePayload> {}
 export const courseService = {
   async getAll(branch?: string): Promise<Course[]> {
     const query = branch ? `${API_CONFIG.ENDPOINTS.COURSES}?branch=${encodeURIComponent(branch)}` : API_CONFIG.ENDPOINTS.COURSES;
+    const res = await apiClient.get<{ courses: any[] }>(query);
+    const rows = res?.courses ?? [];
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.title ?? r.name ?? '',
+      code: r.course_code ?? r.code ?? '',
+      instructor: [r.first_name, r.last_name].filter(Boolean).join(' ') || r.teacher_email || '',
+      students: Number(r.enrollment_count ?? 0),
+      semester: r.semester ?? null,
+      description: r.description ?? null,
+      progress: 0,
+      credits: r.credits ?? null,
+      branchName: r.branch_name ?? null,
+    } as Course));
+  },
+
+  async getAvailable(branch?: string): Promise<Course[]> {
+    const base = API_CONFIG.ENDPOINTS.COURSES + '/available/all';
+    const query = branch ? `${base}?branch=${encodeURIComponent(branch)}` : base;
     const res = await apiClient.get<{ courses: any[] }>(query);
     const rows = res?.courses ?? [];
     return rows.map((r) => ({

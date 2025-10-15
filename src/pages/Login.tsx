@@ -92,6 +92,7 @@ const Login = () => {
     const password = formData.get('password') as string;
     const name = formData.get('name') as string;
     const role = formData.get('role') as 'teacher' | 'student';
+    const institutionPassword = formData.get('institutionPassword') as string;
 
     try {
       if (!selectedInstitution) {
@@ -102,7 +103,7 @@ const Login = () => {
       const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.REGISTER}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name, role, tenantId: selectedInstitution }),
+        body: JSON.stringify({ email, password, name, role, tenantId: selectedInstitution, institutionPassword }),
       });
       const reg = await res.json();
       if (!res.ok) throw new Error(reg.message || 'Signup failed');
@@ -240,6 +241,16 @@ const Login = () => {
                         <SelectItem value="student">Student</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-instpass">Institution Password</Label>
+                    <Input
+                      id="signup-instpass"
+                      name="institutionPassword"
+                      type="password"
+                      placeholder="Provided by your institution admin"
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="signup-password">Password</Label>
