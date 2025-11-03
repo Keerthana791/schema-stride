@@ -351,6 +351,8 @@ router.get('/lecture/:id', authenticateToken, async (req, res, next) => {
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunkSize = (end - start) + 1;
       
+      console.log(`Streaming chunk: ${start}-${end}/${fileSize} (${chunkSize} bytes)`);
+      
       const file = fs.createReadStream(videoPath, { start, end });
       
       const headers = {
@@ -358,7 +360,12 @@ router.get('/lecture/:id', authenticateToken, async (req, res, next) => {
         'Accept-Ranges': 'bytes',
         'Content-Length': chunkSize,
         'Content-Type': 'video/mp4',
-        'Cache-Control': 'no-cache, no-transform',
+        'Cache-Control': 'no-cache, no-store, must-revalidate, no-transform',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Range',
+        'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
         'Connection': 'keep-alive',
         'Content-Disposition': 'inline',
         'X-Content-Type-Options': 'nosniff'
@@ -481,52 +488,51 @@ router.get('/:id/stream', authenticateToken, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
-
-// Delete file
-router.delete('/:id', authenticateToken, async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { role, id: userId } = req.user;
-    const tenantPool = req.tenantPool;
-
-    // Check if file exists and user has permission to delete
-    let query, params;
-    if (role === 'student') {
-      // Students can only delete files they uploaded
-      query = 'SELECT * FROM file_uploads WHERE id = $1 AND uploaded_by = $2';
-      params = [id, userId];
-    } else {
-      // Teachers and admins can delete any file
-      query = 'SELECT * FROM file_uploads WHERE id = $1';
-      params = [id];
-    }
-
-    const result = await tenantPool.query(query, params);
-
-    if (result.rows.length === 0) {
-      throw new NotFoundError('File not found or access denied');
-    }
-
-    const file = result.rows[0];
-
-    // Delete file from disk
-    if (fs.existsSync(file.file_path)) {
-      fs.unlink(file.file_path, (err) => {
-        if (err) console.error('Error deleting file from disk:', err);
-      });
-    }
-
-    // Delete file record from database
-    await tenantPool.query('DELETE FROM file_uploads WHERE id = $1', [id]);
-
-    res.json({
-      message: 'File deleted successfully'
     });
-  } catch (error) {
-    next(error);
-  }
-});
+
+    // Delete file endpoint
+    router.delete('/:id', authenticateToken, async (req, res, next) => {
+      try {
+        const { id } = req.params;
+        const { role, id: userId } = req.user;
+        const tenantPool = req.tenantPool;
+        
+        let query, params;
+        if (role === 'student') {
+          // Students can only delete their own files
+          query = 'SELECT * FROM file_uploads WHERE id = $1 AND uploaded_by = $2';
+          params = [id, userId];
+        } else {
+          // Teachers and admins can delete any file
+          query = 'SELECT * FROM file_uploads WHERE id = $1';
+          params = [id];
+        }
+
+        const result = await tenantPool.query(query, params);
+
+        if (result.rows.length === 0) {
+          throw new NotFoundError('File not found or access denied');
+        }
+
+        const file = result.rows[0];
+
+        // Delete file from disk
+        if (fs.existsSync(file.file_path)) {
+          fs.unlink(file.file_path, (err) => {
+            if (err) console.error('Error deleting file from disk:', err);
+          });
+        }
+
+        // Delete file record from database
+        await tenantPool.query('DELETE FROM file_uploads WHERE id = $1', [id]);
+
+        res.json({
+          message: 'File deleted successfully'
+        });
+      } catch (error) {
+        next(error);
+      }
+    });
 
 // Update file metadata
 router.put('/:id', [

@@ -1,29 +1,47 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, Download } from 'lucide-react';
 import { lecturesService } from '@/services/lectures';
 
-// List of supported video formats with MIME types
+// List of supported video formats with MIME types, ordered by compatibility
 const SUPPORTED_FORMATS = [
-  { mime: 'video/mp4', codecs: 'avc1.42E01E,mp4a.40.2' },  // MP4 with H.264
-  { mime: 'video/webm', codecs: 'vp9,opus' },              // WebM with VP9
-  { mime: 'video/ogg', codecs: 'theora,vorbis' },          // Ogg Theora
-  { mime: 'video/x-matroska', codecs: 'avc1,opus' },       // MKV with H.264
-  { mime: 'video/quicktime', codecs: 'avc1' },             // MOV
-  { mime: 'video/x-msvideo', codecs: '' },                 // AVI
-  { mime: 'video/x-ms-wmv', codecs: 'wmv3' },              // WMV
-  { mime: 'video/mpeg', codecs: 'mpeg2video' },            // MPEG
-  { mime: 'video/3gpp', codecs: 'mp4v.20.8' },             // 3GPP
-  { mime: 'video/3gpp2', codecs: 'mp4v.20.8' }             // 3GPP2
+  // Most compatible formats first - prioritize MP4 with H.264 codec
+  { mime: 'video/mp4', codecs: 'avc1.42E01E,mp4a.40.2' },  // MP4 with H.264 (most widely supported)
+  { mime: 'video/mp4', codecs: 'avc1.58A01E,mp4a.40.2' },  // MP4 with H.264 Baseline
+  { mime: 'video/mp4' },                                   // Generic MP4 (let browser handle codec detection)
+  
+  // Fallback formats (commented out for now - enable if needed)
+  // { mime: 'video/webm', codecs: 'vp9,opus' },           // WebM with VP9
+  // { mime: 'video/webm', codecs: 'vp8,vorbis' },         // WebM with VP8
+  
+  // Other formats (commented out - enable if needed)
+  // { mime: 'video/quicktime' },                          // QuickTime
+  // { mime: 'video/x-matroska' },                         // MKV
+  // { mime: 'video/x-msvideo' },                          // AVI
+  // { mime: 'video/x-ms-wmv' },                           // WMV
+  // { mime: 'video/3gpp' },                               // 3GPP
+  // { mime: 'video/3gpp2' }                               // 3GPP2 (least compatible)
 ];
 
 // Check if a video format is supported
-const isFormatSupported = async (mimeType: string, codecs: string): Promise<boolean> => {
+const isFormatSupported = async (mimeType: string, codecs?: string): Promise<boolean> => {
   try {
-    return await (document.createElement('video').canPlayType(`${mimeType};codecs="${codecs}"`) !== '');
+    if (!('MediaSource' in window) || !('isTypeSupported' in MediaSource)) {
+      console.warn('MediaSource not supported in this browser');
+      return false;
+    }
+    
+    const typeString = codecs ? `${mimeType};codecs="${codecs}"` : mimeType;
+    const isSupported = MediaSource.isTypeSupported(typeString);
+    
+    if (!isSupported) {
+      console.warn(`Format not supported: ${typeString}`);
+    }
+    
+    return isSupported;
   } catch (e) {
     console.error('Error checking format support:', e);
     return false;
@@ -36,11 +54,17 @@ const LecturePlayerPage = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showFallback, setShowFallback] = useState(false);
-  const [videoFormats, setVideoFormats] = useState<Array<{url: string, type: string, codecs: string}>>([]);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [videoFormats, setVideoFormats] = useState<Array<{url: string, type: string, codecs?: string}>>([]);
   const [currentFormatIndex, setCurrentFormatIndex] = useState(0);
+  const [playbackError, setPlaybackError] = useState<MediaError | null>(null);
+  const [showDownloadButton, setShowDownloadButton] = useState(false);
+  const [videoSource, setVideoSource] = useState<string>('');
+  const [isVideoReady, setIsVideoReady] = useState(false);
   
   const baseSrc = lectureId ? lecturesService.streamUrl(lectureId) : '';
+  const MAX_RETRIES = 2;
   
   // Generate alternative sources with different formats
   useEffect(() => {
@@ -48,34 +72,226 @@ const LecturePlayerPage = () => {
     
     console.log('Generating video sources for:', baseSrc);
     
-    // Add a timestamp to prevent caching issues
-    const timestamp = `t=${Date.now()}`;
-    const srcWithTimestamp = baseSrc.includes('?') 
-      ? `${baseSrc}&${timestamp}`
-      : `${baseSrc}?${timestamp}`;
-    
-    const formats = SUPPORTED_FORMATS.map(format => {
-      const url = format.mime === 'video/mp4' 
-        ? `${srcWithTimestamp}&format=mp4`
-        : srcWithTimestamp;
+    const generateFormats = async () => {
+      const formats = [];
+      
+      // Create a URL object to handle parameters properly
+      const createUrl = (format?: string) => {
+        // Add .mp4 extension to the path if not present
+        let urlPath = baseSrc;
+        if (!urlPath.toLowerCase().endsWith('.mp4')) {
+          // Remove trailing slash if present
+          if (urlPath.endsWith('/')) {
+            urlPath = urlPath.slice(0, -1);
+          }
+          urlPath += '.mp4';
+        }
         
-      return {
-        url,
-        type: format.mime,
-        codecs: format.codecs
+        const url = new URL(urlPath, window.location.origin);
+        // Remove any existing format or t parameters
+        url.searchParams.delete('format');
+        url.searchParams.delete('t');
+        // Add cache buster
+        url.searchParams.set('_', Date.now().toString());
+        if (format) {
+          url.searchParams.set('format', format);
+        }
+        console.log('Generated video URL:', url.toString());
+        return url.toString();
       };
+      
+      // Add the original source first
+      formats.push({
+        url: createUrl('mp4'),
+        type: 'video/mp4',
+        codecs: 'avc1.42E01E,mp4a.40.2'
+      });
+      
+      // Add other supported formats
+      for (const format of SUPPORTED_FORMATS) {
+        // Skip if already added or not supported
+        if (formats.some(f => f.type === format.mime)) continue;
+        
+        const isSupported = await isFormatSupported(format.mime, format.codecs);
+        if (isSupported) {
+          formats.push({
+            url: createUrl(format.mime.split('/')[1] || ''),
+            type: format.mime,
+            codecs: format.codecs
+          });
+        }
+      }
+      
+      console.log('Available formats:', formats);
+      setVideoFormats(formats);
+      setCurrentFormatIndex(0);
+      
+      // If no formats are supported, show error immediately
+      if (formats.length === 0) {
+        setError('Your browser does not support any of the available video formats.');
+        setIsLoading(false);
+      } else {
+        // Set the first format as the initial source
+        setVideoSource(formats[0].url);
+      }
+    };
+    
+    generateFormats();
+  }, [baseSrc]);
+
+  useEffect(() => {
+    if (videoFormats.length > 0 && currentFormatIndex < videoFormats.length) {
+      const format = videoFormats[currentFormatIndex];
+      console.log(`Trying format ${currentFormatIndex + 1}/${videoFormats.length}:`, format);
+      
+      // Add a cache buster to prevent caching issues
+      const cacheBuster = `t=${Date.now()}`;
+      const url = format.url.includes('?') 
+        ? `${format.url}&${cacheBuster}` 
+        : `${format.url}?${cacheBuster}`;
+      
+      setVideoSource(url);
+      setIsVideoReady(false);
+      setIsLoading(true);
+      setError(null);
+    }
+  }, [videoFormats, currentFormatIndex]);
+
+  const handleLoadedData = () => {
+    console.log('Video loaded data');
+    setIsLoading(false);
+    setError(null);
+    setIsVideoReady(true);
+    
+    // Try to play the video
+    const playPromise = videoRef.current?.play();
+    
+    if (playPromise !== undefined) {
+      playPromise.catch(error => {
+        console.error('Error attempting to play:', error);
+        setError('Video could not be played automatically. Please click the play button.');
+      });
+    }
+  };
+  
+  const getErrorMessage = (error: MediaError | null) => {
+    if (!error) return 'An unknown error occurred.';
+    
+    switch (error.code) {
+      case MediaError.MEDIA_ERR_ABORTED:
+        return 'Video playback was aborted.';
+      case MediaError.MEDIA_ERR_NETWORK:
+        return 'A network error occurred while fetching the video.';
+      case MediaError.MEDIA_ERR_DECODE:
+        return 'The video playback was aborted due to a corruption problem or because the video uses features your browser does not support.';
+      case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+        return 'The video could not be loaded, either because the server or network failed or because the format is not supported.';
+      default:
+        return `An unknown error occurred (Code: ${error.code}).`;
+    }
+  };
+
+  const handleError = useCallback((e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const error = video.error;
+    const errorMessage = getErrorMessage(error);
+    
+    // Enhanced error logging with TypeScript fix
+    const errorDetails = {
+      error: error ? {
+        code: error.code,
+        message: error.message,
+        // @ts-ignore - name is not in the MediaError type but exists in some browsers
+        name: error.name || 'MediaError'
+      } : null,
+      videoState: {
+        readyState: video.readyState,
+        networkState: video.networkState,
+        currentSrc: video.currentSrc,
+        src: video.src,
+        duration: video.duration,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        buffered: video.buffered.length > 0 ? {
+          start: video.buffered.start(0),
+          end: video.buffered.end(0)
+        } : 'No buffered data',
+        seekable: video.seekable.length > 0 ? {
+          start: video.seekable.start(0),
+          end: video.seekable.end(0)
+        } : 'Not seekable'
+      },
+      timestamp: new Date().toISOString(),
+      format: videoFormats[currentFormatIndex],
+      retryCount,
+      maxRetries: MAX_RETRIES
+    };
+
+    console.error('Video error details:', JSON.stringify(errorDetails, null, 2));
+
+    if (retryCount < MAX_RETRIES) {
+      const nextRetry = retryCount + 1;
+      setRetryCount(nextRetry);
+      console.log(`Retry attempt ${nextRetry} of ${MAX_RETRIES}`);
+      
+      // Add cache busting to the URL
+      const cacheBuster = `retry_${nextRetry}_${Date.now()}`;
+      
+      // Try next format if available
+      if (currentFormatIndex < videoFormats.length - 1) {
+        const nextFormatIndex = currentFormatIndex + 1;
+        console.log(`Trying format ${nextFormatIndex + 1}/${videoFormats.length}:`, videoFormats[nextFormatIndex]);
+        setCurrentFormatIndex(nextFormatIndex);
+      } else {
+        // If we've tried all formats, try again with the first format with cache busting
+        setTimeout(() => {
+          console.log('Retrying with first format');
+          setCurrentFormatIndex(0);
+          setVideoSource(prev => {
+            const url = new URL(prev, window.location.origin);
+            url.searchParams.set('_', cacheBuster);
+            return url.toString();
+          });
+        }, 1000 * nextRetry);
+      }
+    } else {
+      setError(`Failed to load video after ${MAX_RETRIES} attempts: ${errorMessage}`);
+      console.error('Max retries reached, showing error to user');
+    }
+  }, [retryCount, currentFormatIndex, videoFormats.length, MAX_RETRIES]);
+
+  const handleRetry = () => {
+    if (retryCount >= MAX_RETRIES) {
+      setError('Failed to load video after multiple attempts. Please try again later.');
+      setShowDownloadButton(true);
+      setIsLoading(false);
+      return;
+    }
+    
+    console.log(`Retry attempt ${retryCount + 1} of ${MAX_RETRIES}`);
+    setIsRetrying(true);
+    setRetryCount(prev => prev + 1);
+    
+    // Force re-render with a new source URL to bypass caching
+    setVideoSource(prev => {
+      const url = new URL(prev, window.location.origin);
+      url.searchParams.set('retry', retryCount.toString());
+      return url.toString();
     });
     
-    console.log('Available video formats:', formats);
-    setVideoFormats(formats);
-    setCurrentFormatIndex(0);
-  }, [baseSrc]);
+    // Reset retry state after a delay
+    setTimeout(() => {
+      setIsRetrying(false);
+    }, 1000);
+  };
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const handleError = (e: Event) => {
+    const errorHandler = (e: Event) => {
       console.error('Video error event:', e);
       const video = e.target as HTMLVideoElement;
       const error = video.error;
@@ -127,7 +343,7 @@ const LecturePlayerPage = () => {
       setIsLoading(false);
     };
 
-    video.addEventListener('error', handleError);
+    video.addEventListener('error', errorHandler);
     video.addEventListener('canplay', handleCanPlay);
 
     // Log video element state
@@ -143,98 +359,46 @@ const LecturePlayerPage = () => {
     });
 
     return () => {
-      video.removeEventListener('error', handleError);
+      video.removeEventListener('error', errorHandler);
       video.removeEventListener('canplay', handleCanPlay);
     };
   }, [baseSrc]);
 
   // Handle download button click
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!baseSrc) return;
-    const link = document.createElement('a');
-    link.href = baseSrc;
-    link.download = `lecture-${lectureId}.mp4`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Handle retry with different format with a small delay
-  const handleRetry = useCallback(async () => {
-    if (!videoFormats.length) return;
-    
-    if (currentFormatIndex >= videoFormats.length - 1) {
-      const formatsTried = videoFormats.map((f, i) => `• ${f.type} (${f.codecs})`).join('\n');
-      setError(`No supported video format found. The following formats were tried:\n${formatsTried}\n\nPlease try downloading the video instead.`);
-      setIsLoading(false);
-      return;
-    }
-
-    const nextIndex = currentFormatIndex + 1;
-    const nextFormat = videoFormats[nextIndex];
-    
-    console.log(`Trying format ${nextIndex + 1}/${videoFormats.length}:`, nextFormat);
-    
-    // Update state first
-    setCurrentFormatIndex(nextIndex);
-    setError(null);
-    setIsLoading(true);
-    
-    // Use a small delay to allow React to update the DOM
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    if (!videoRef.current) return;
     
     try {
-      // Pause and reset the video element
-      videoRef.current.pause();
-      videoRef.current.removeAttribute('src');
-      videoRef.current.load();
+      setIsLoading(true);
+      const response = await fetch(baseSrc);
+      if (!response.ok) throw new Error('Failed to fetch video');
       
-      // Create a new source element
-      const source = document.createElement('source');
-      source.src = nextFormat.url;
-      source.type = nextFormat.type;
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `lecture-${lectureId}.mp4`;
+      document.body.appendChild(link);
+      link.click();
       
-      // Clear existing sources and add the new one
-      videoRef.current.innerHTML = '';
-      videoRef.current.appendChild(source);
-      
-      // Add error handler to the source element
-      source.onerror = () => {
-        console.error(`Failed to load source: ${nextFormat.type}`);
-        handleRetry();
-      };
-      
-      // Load the new source
-      videoRef.current.load();
-      
-      // Try to play after metadata is loaded
-      videoRef.current.onloadedmetadata = async () => {
-        try {
-          if (videoRef.current) {
-            await videoRef.current.play();
-            setIsLoading(false);
-          }
-        } catch (e) {
-          console.error('Error playing video:', e);
-          handleRetry();
-        }
-      };
-      
-    } catch (e) {
-      console.error('Error changing video source:', e);
-      handleRetry();
-    }
-  }, [currentFormatIndex, videoFormats]);
+      // Cleanup
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(link);
+      }, 100);
+    } catch (err) {
+      console.error('Download failed:', err);
+      setError('Failed to download video. Please try again later.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   // Get the current format being tried
   const currentFormat = videoFormats[currentFormatIndex];
-  
-  // Add useCallback to memoize the retry handler
-  const handleRetryMemoized = useCallback(handleRetry, [currentFormatIndex, videoFormats, handleRetry]);
+
+  // Handle retry with different format with a small delay
+  const handleRetryMemoized = useCallback(handleRetry, [handleRetry]);
   
   // Update the effect to use the memoized handler
   useEffect(() => {
@@ -251,7 +415,7 @@ const LecturePlayerPage = () => {
       video.removeEventListener('error', errorHandler);
     };
   }, [handleRetryMemoized]);
-  
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -277,25 +441,9 @@ const LecturePlayerPage = () => {
           {error && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error playing video</AlertTitle>
-              <AlertDescription className="mt-2">
-                <div className="whitespace-pre-line mb-2">{error}</div>
-                <div className="mt-2 space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    Current format: {currentFormat?.type || 'N/A'}
-                    {currentFormat?.codecs && ` (${currentFormat.codecs})`}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={handleRetry}>
-                      Try different format
-                    </Button>
-                    {baseSrc && (
-                      <Button variant="outline" size="sm" onClick={handleDownload}>
-                        <Download className="h-3 w-3 mr-1" /> Download
-                      </Button>
-                    )}
-                  </div>
-                </div>
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription className="whitespace-pre-line">
+                {error}
               </AlertDescription>
             </Alert>
           )}
@@ -310,50 +458,25 @@ const LecturePlayerPage = () => {
           )}
           
           {baseSrc ? (
-            <div className="relative">
+            <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
               <video
                 ref={videoRef}
-                key={`video-${currentFormatIndex}`}
+                key={`video-${currentFormatIndex}-${Date.now()}`}
                 controls
-                className="w-full rounded-lg bg-black"
-                onError={(e) => {
-                  const target = e.target as HTMLVideoElement;
-                  const error = target.error;
-                  const networkState = target.networkState;
-                  const readyState = target.readyState;
-                  
-                  console.error('Video element error:', {
-                    event: e,
-                    error: error ? {
-                      code: error.code,
-                      message: error.message,
-                      name: 'MediaError'
-                    } : null,
-                    networkState,
-                    readyState,
-                    currentSrc: target.currentSrc,
-                    src: target.src
-                  });
-                  
-                  // Try next format automatically
-                  handleRetry();
-                }}
-                onCanPlay={() => {
-                  console.log('Video can play, format:', currentFormat);
-                  setIsLoading(false);
-                }}
-                onLoadStart={() => {
-                  console.log('Video load started');
-                  setIsLoading(true);
-                }}
-                onWaiting={() => {
-                  console.log('Video waiting for data');
-                  setIsLoading(true);
-                }}
+                controlsList="nodownload"
+                disablePictureInPicture
+                preload="auto"
+                playsInline
+                className="w-full h-full object-contain"
+                onLoadedData={handleLoadedData}
+                onError={handleError}
+                onWaiting={() => setIsLoading(true)}
                 onPlaying={() => {
-                  console.log('Video playing');
+                  console.log('Video is playing');
                   setIsLoading(false);
+                  setError(null);
                 }}
+                onEnded={() => console.log('Video ended')}
                 onStalled={() => {
                   console.warn('Video stalled');
                   setIsLoading(true);
@@ -362,18 +485,11 @@ const LecturePlayerPage = () => {
                 onAbort={() => console.warn('Video loading aborted')}
                 onEmptied={() => console.warn('Video emptied')}
               >
-                {showFallback ? (
-                  // Try all supported formats if fallback is enabled
-                  videoFormats.map((format, index) => (
-                    <source
-                      key={index}
-                      src={format.url}
-                      type={format.type}
-                    />
-                  ))
-                ) : (
-                  // Default to the original source first
-                  <source src={baseSrc} type="video/mp4" />
+                {videoFormats[currentFormatIndex] && (
+                  <source
+                    src={videoSource}
+                    type={`${videoFormats[currentFormatIndex]?.type}${videoFormats[currentFormatIndex]?.codecs ? `; codecs="${videoFormats[currentFormatIndex]?.codecs}"` : ''}`}
+                  />
                 )}
                 Your browser does not support the video tag.
               </video>
@@ -392,5 +508,23 @@ const LecturePlayerPage = () => {
     </div>
   );
 };
+
+// Helper function to get user-friendly error messages
+function getErrorMessage(error: MediaError | null): string {
+  if (!error) return 'Unknown error';
+  
+  switch (error.code) {
+    case MediaError.MEDIA_ERR_ABORTED:
+      return 'Video playback was aborted';
+    case MediaError.MEDIA_ERR_NETWORK:
+      return 'A network error occurred while fetching the video';
+    case MediaError.MEDIA_ERR_DECODE:
+      return 'Error decoding the video. The format may not be supported.';
+    case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+      return 'The video format is not supported by your browser';
+    default:
+      return error.message || 'An unknown error occurred during playback';
+  }
+}
 
 export default LecturePlayerPage;
