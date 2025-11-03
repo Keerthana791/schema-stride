@@ -35,6 +35,6 @@ export const lecturesService = {
 
   streamUrl(lectureId: string): string {
     const token = localStorage.getItem('accessToken') || '';
-    return `/api/lectures/${lectureId}/stream?token=${encodeURIComponent(token)}`;
+    return `/api/upload/lecture/${lectureId}?token=${encodeURIComponent(token)}`;
   }
 };

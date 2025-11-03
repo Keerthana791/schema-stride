@@ -29,24 +29,18 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  // Define allowed file types
+  // Define allowed video MIME types
   const allowedTypes = [
-    'image/jpeg',
-    'image/png',
-    'image/gif',
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/plain',
     'video/mp4',
-    'video/avi',
+    'video/webm',
+    'video/ogg',
     'video/quicktime',
-    'audio/mpeg',
-    'audio/wav'
+    'video/x-msvideo', // avi
+    'video/x-matroska', // mkv
+    'video/x-ms-wmv', // wmv
+    'video/mpeg',
+    'video/3gpp',
+    'video/3gpp2'
   ];
 
   if (allowedTypes.includes(file.mimetype)) {
@@ -269,8 +263,134 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
   }
 });
 
-// Download file
-router.get('/:id/download', authenticateToken, async (req, res, next) => {
+// Stream lecture video
+router.get('/lecture/:id', authenticateToken, async (req, res, next) => {
+  console.log('=== New Video Stream Request ===');
+  console.log('Request URL:', req.originalUrl);
+  console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('User:', req.user);
+  
+  try {
+    console.log('Stream lecture request received:', req.params.id);
+    const { id } = req.params;
+    const { role, id: userId } = req.user;
+    const tenantPool = req.tenantPool;
+
+    // Get lecture details including the video path
+    const result = await tenantPool.query(
+      'SELECT id, video_path, title FROM lectures WHERE id = $1',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      console.error('Lecture not found:', id);
+      throw new NotFoundError('Lecture not found');
+    }
+
+    const lecture = result.rows[0];
+    console.log('Found lecture:', { id: lecture.id, title: lecture.title });
+    
+    // Clean up the video path (remove any leading slashes or dots)
+    const cleanPath = lecture.video_path.replace(/^[./]+/, '');
+    const videoPath = path.join(__dirname, '../../', cleanPath);
+    
+    console.log('Looking for video at path:', videoPath);
+    
+    // Check if file exists and is accessible
+    try {
+      const stats = fs.statSync(videoPath);
+      console.log('Video file found. Size:', stats.size, 'bytes');
+      console.log('File permissions:', {
+        readable: fs.constants.R_OK ? 'readable' : 'not readable',
+        writable: fs.constants.W_OK ? 'writable' : 'not writable',
+        executable: fs.constants.X_OK ? 'executable' : 'not executable'
+      });
+      
+      // Try to open the file to check read permissions
+      const fd = fs.openSync(videoPath, 'r');
+      fs.closeSync(fd);
+      
+      console.log('Successfully opened video file for reading');
+    } catch (err) {
+      console.error('Error accessing video file:', err);
+      if (err.code === 'ENOENT') {
+        console.error('File does not exist at path:', videoPath);
+      } else if (err.code === 'EACCES') {
+        console.error('Permission denied when trying to access file');
+      } else if (err.code === 'EBUSY') {
+        console.error('File is busy or locked by another process');
+      }
+      console.log('Current working directory:', process.cwd());
+      console.log('__dirname:', __dirname);
+      console.log('Attempted full path:', videoPath);
+      
+      // List directory contents to help debug
+      const dir = path.dirname(videoPath);
+      try {
+        console.log('Directory contents:', fs.readdirSync(dir));
+      } catch (dirErr) {
+        console.error('Error reading directory:', dir, dirErr);
+      }
+      
+      throw new NotFoundError('Video file not accessible: ' + (err.message || 'Unknown error'));
+    }
+
+    const stat = fs.statSync(videoPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    // Log request details
+    console.log('Range header:', range);
+    console.log('Video path:', videoPath);
+    console.log('File size:', fileSize, 'bytes');
+    
+    // Handle range requests for video streaming
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunkSize = (end - start) + 1;
+      
+      const file = fs.createReadStream(videoPath, { start, end });
+      
+      const headers = {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': 'video/mp4',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'Content-Disposition': 'inline',
+        'X-Content-Type-Options': 'nosniff'
+      };
+      
+      console.log('Sending 206 Partial Content with headers:', headers);
+      res.writeHead(206, headers);
+      
+      file.pipe(res);
+    } else {
+      // If no range header, send the first chunk
+      const head = {
+        'Content-Length': fileSize,
+        'Content-Type': 'video/mp4',
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'Content-Disposition': 'inline',
+        'X-Content-Type-Options': 'nosniff'
+      };
+      
+      console.log('Sending 200 OK with headers:', head);
+      res.writeHead(200, head);
+      fs.createReadStream(videoPath).pipe(res);
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Serve file with support for video streaming
+router.get('/:id/stream', authenticateToken, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { role, id: userId } = req.user;
@@ -279,11 +399,11 @@ router.get('/:id/download', authenticateToken, async (req, res, next) => {
     let query, params;
 
     if (role === 'student') {
-      // Students can only download public files or files they uploaded
+      // Students can only access public files or files they uploaded
       query = 'SELECT * FROM file_uploads WHERE id = $1 AND (is_public = true OR uploaded_by = $2)';
       params = [id, userId];
     } else {
-      // Teachers and admins can download all files
+      // Teachers and admins can access all files
       query = 'SELECT * FROM file_uploads WHERE id = $1';
       params = [id];
     }
@@ -302,19 +422,62 @@ router.get('/:id/download', authenticateToken, async (req, res, next) => {
       throw new NotFoundError('File not found on disk');
     }
 
-    // Set appropriate headers
-    res.setHeader('Content-Disposition', `attachment; filename="${file.original_name}"`);
-    res.setHeader('Content-Type', file.mime_type);
-    res.setHeader('Content-Length', file.file_size);
+    const stat = fs.statSync(filePath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
 
-    // Stream file to response
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
-
-    fileStream.on('error', (error) => {
-      console.error('Error streaming file:', error);
-      res.status(500).json({ message: 'Error downloading file' });
-    });
+    // Set appropriate content type
+    const mimeType = file.mime_type || 'application/octet-stream';
+    
+    if (mimeType.startsWith('video/') || mimeType.startsWith('audio/')) {
+      // Handle video/audio streaming with range requests
+      if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSize = (end - start) + 1;
+        
+        const fileStream = fs.createReadStream(filePath, { start, end });
+        
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': mimeType,
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive'
+        });
+        
+        fileStream.pipe(res);
+      } else {
+        // If no range header, send the first chunk
+        const head = {
+          'Content-Length': fileSize,
+          'Content-Type': mimeType,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive'
+        };
+        
+        res.writeHead(200, head);
+        fs.createReadStream(filePath).pipe(res);
+      }
+    } else {
+      // For non-media files, use standard download
+      res.setHeader('Content-Disposition', `inline; filename="${file.original_name}"`);
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Length', fileSize);
+      
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+      
+      fileStream.on('error', (error) => {
+        console.error('Error streaming file:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error streaming file' });
+        }
+      });
+    }
   } catch (error) {
     next(error);
   }
