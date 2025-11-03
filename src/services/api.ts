@@ -64,6 +64,40 @@ class ApiClient {
     });
   }
 
+  async postForm<T>(endpoint: string, formData: FormData, options?: RequestOptions): Promise<T> {
+    const { requiresAuth = true, headers = {}, ...restOptions } = options || {};
+    const tenantId = (typeof window !== 'undefined') ? localStorage.getItem('tenantId') : null;
+
+    const config: RequestInit = {
+      ...restOptions,
+      method: 'POST',
+      headers: {
+        ...(tenantId ? { 'X-Tenant-ID': tenantId } : {}),
+        ...headers,
+      },
+      body: formData,
+    };
+
+    if (requiresAuth) {
+      const token = this.getAuthToken();
+      if (token) {
+        config.headers = {
+          ...config.headers,
+          Authorization: `Bearer ${token}`,
+        };
+      }
+    }
+
+    const response = await fetch(`${this.baseUrl}${endpoint}`, config);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'An error occurred' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+
+    return response.json();
+  }
+
   async put<T>(endpoint: string, data?: unknown, options?: RequestOptions): Promise<T> {
     return this.request<T>(endpoint, {
       ...options,
