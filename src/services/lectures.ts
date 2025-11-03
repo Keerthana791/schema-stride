@@ -15,7 +15,9 @@ export interface Lecture {
 
 export const lecturesService = {
   async list(courseId: string): Promise<{ lectures: Lecture[] }> {
-    const res = await apiClient.get<{ lectures: Lecture[] }>(`${API_CONFIG.ENDPOINTS.COURSES}/${courseId}/lectures`);
+    const res = await apiClient.get<{ lectures: Lecture[] }>(
+      `${API_CONFIG.ENDPOINTS.COURSES}/${courseId}/lectures`
+    );
     return res;
   },
 
@@ -24,17 +26,23 @@ export const lecturesService = {
     fd.append('title', data.title);
     if (data.description) fd.append('description', data.description);
     fd.append('file', data.file);
-    const res = await apiClient.postForm<{ lecture: Lecture }>(`${API_CONFIG.ENDPOINTS.COURSES}/${courseId}/lectures`, fd);
+    
+    const res = await apiClient.postForm<{ lecture: Lecture }>(
+      `${API_CONFIG.ENDPOINTS.COURSES}/${courseId}/lectures`,
+      fd
+    );
     return res;
   },
 
   async remove(lectureId: string): Promise<{ message: string }> {
-    const res = await apiClient.delete<{ message: string }>(`/api/lectures/${lectureId}`);
+    const res = await apiClient.delete<{ message: string }>(
+      API_CONFIG.ENDPOINTS.LECTURE_BY_ID(lectureId)
+    );
     return res;
   },
 
   streamUrl(lectureId: string): string {
     const token = localStorage.getItem('accessToken') || '';
-    return `/api/upload/lecture/${lectureId}?token=${encodeURIComponent(token)}`;
+    return `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.LECTURE_STREAM(lectureId)}?token=${encodeURIComponent(token)}`;
   }
 };

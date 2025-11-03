@@ -75,6 +75,11 @@ export const API_CONFIG = {
     DOWNLOAD_FILE: (id: string) => `/upload/${id}/download`,
     UPLOAD_STATS: '/upload/stats',
     
+    // Lectures
+    LECTURES: '/lectures',
+    LECTURE_BY_ID: (id: string) => `/lectures/${id}`,
+    LECTURE_STREAM: (id: string) => `/lectures/${id}/stream`,
+    
     // Admin/User Management
     ADMIN_USERS: '/admin/users',
     ADMIN_USER_BY_ID: (id: string) => `/admin/users/${id}`,

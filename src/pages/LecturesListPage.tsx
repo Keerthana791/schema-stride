@@ -39,19 +39,91 @@ const LecturesListPage = () => {
   const onUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!courseId) return;
-    if (!title || !file) {
-      toast({ title: 'Missing data', description: 'Title and video file are required', variant: 'destructive' });
+    
+    // Validate inputs
+    if (!title.trim()) {
+      toast({ title: 'Missing title', description: 'Please enter a title for the lecture', variant: 'destructive' });
       return;
     }
+    
+    if (!file) {
+      toast({ title: 'No file selected', description: 'Please select a video file to upload', variant: 'destructive' });
+      return;
+    }
+
+    // Validate file type
+    const validTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+    if (!validTypes.includes(file.type)) {
+      toast({ 
+        title: 'Invalid file type', 
+        description: 'Please upload a video file (MP4, WebM, or QuickTime)', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+
+    // Validate file size (e.g., 500MB limit)
+    const maxSize = 500 * 1024 * 1024; // 500MB
+    if (file.size > maxSize) {
+      toast({ 
+        title: 'File too large', 
+        description: 'Video file must be less than 500MB', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+
     try {
-      await lecturesService.create(courseId, { title, description, file });
+      // Show loading state
+      const { id: toastId, dismiss } = toast({ 
+        title: 'Uploading...', 
+        description: 'Please wait while we upload your video',
+        variant: 'default'
+      });
+      
+      // Create form data
+      const formData = new FormData();
+      formData.append('title', title);
+      if (description) formData.append('description', description);
+      formData.append('file', file);
+
+      // Log the form data for debugging
+      console.log('Uploading file:', {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: file.lastModified
+      });
+
+      // Call the service
+      await lecturesService.create(courseId, { 
+        title, 
+        description, 
+        file 
+      });
+      
+      // Reset form
       setTitle('');
       setDescription('');
       setFile(null);
-      toast({ title: 'Uploaded', description: 'Lecture uploaded successfully' });
+      
+      // Update UI
+      dismiss();
+      toast({ 
+        title: 'Success!', 
+        description: 'Lecture uploaded successfully',
+        variant: 'default'
+      });
+      
+      // Reload lectures
       await load();
-    } catch (e: any) {
-      toast({ title: 'Upload failed', description: e?.message || 'Please try again', variant: 'destructive' });
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast({ 
+        title: 'Upload failed', 
+        description: error?.message || 'An error occurred during upload. Please try again.', 
+        variant: 'destructive' 
+      });
     }
   };
 

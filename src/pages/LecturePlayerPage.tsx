@@ -77,25 +77,30 @@ const LecturePlayerPage = () => {
       
       // Create a URL object to handle parameters properly
       const createUrl = (format?: string) => {
-        // Add .mp4 extension to the path if not present
-        let urlPath = baseSrc;
-        if (!urlPath.toLowerCase().endsWith('.mp4')) {
+        // Create URL object from base source
+        const url = new URL(baseSrc, window.location.origin);
+        
+        // Add .mp4 extension to the pathname if not present
+        if (!url.pathname.toLowerCase().endsWith('.mp4')) {
           // Remove trailing slash if present
-          if (urlPath.endsWith('/')) {
-            urlPath = urlPath.slice(0, -1);
-          }
-          urlPath += '.mp4';
+          let path = url.pathname.endsWith('/') 
+            ? url.pathname.slice(0, -1) 
+            : url.pathname;
+          url.pathname = `${path}.mp4`;
         }
         
-        const url = new URL(urlPath, window.location.origin);
         // Remove any existing format or t parameters
         url.searchParams.delete('format');
         url.searchParams.delete('t');
+        
         // Add cache buster
         url.searchParams.set('_', Date.now().toString());
+        
+        // Add format if specified
         if (format) {
           url.searchParams.set('format', format);
         }
+        
         console.log('Generated video URL:', url.toString());
         return url.toString();
       };

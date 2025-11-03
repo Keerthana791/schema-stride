@@ -265,84 +265,130 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
 
 // Stream lecture video
 router.get('/lecture/:id', authenticateToken, async (req, res, next) => {
-  console.log('=== New Video Stream Request ===');
-  console.log('Request URL:', req.originalUrl);
-  console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
-  console.log('User:', req.user);
+  const requestId = Date.now();
+  console.log(`\n=== New Video Stream Request [${requestId}] ===`);
+  console.log(`[${requestId}] Request URL:`, req.originalUrl);
+  console.log(`[${requestId}] Method:`, req.method);
+  console.log(`[${requestId}] Headers:`, JSON.stringify(req.headers, null, 2));
+  console.log(`[${requestId}] User:`, req.user);
+  
+  let videoPath = '';
   
   try {
-    console.log('Stream lecture request received:', req.params.id);
-    const { id } = req.params;
+    // Remove .mp4 extension if present in the ID
+    const lectureId = req.params.id.replace(/\.mp4$/i, '');
+    console.log(`[${requestId}] Cleaned lecture ID:`, lectureId);
+    
     const { role, id: userId } = req.user;
     const tenantPool = req.tenantPool;
 
+    console.log(`[${requestId}] Fetching lecture details for ID:`, lectureId);
+    
     // Get lecture details including the video path
     const result = await tenantPool.query(
       'SELECT id, video_path, title FROM lectures WHERE id = $1',
-      [id]
+      [lectureId]
     );
 
     if (result.rows.length === 0) {
-      console.error('Lecture not found:', id);
-      throw new NotFoundError('Lecture not found');
+      const error = new Error('Lecture not found');
+      error.status = 404;
+      throw error;
     }
 
     const lecture = result.rows[0];
-    console.log('Found lecture:', { id: lecture.id, title: lecture.title });
+    console.log(`[${requestId}] Found lecture:`, { 
+      id: lecture.id, 
+      title: lecture.title,
+      video_path: lecture.video_path 
+    });
+    
+    if (!lecture.video_path) {
+      throw new Error('No video path found for this lecture');
+    }
     
     // Clean up the video path (remove any leading slashes or dots)
-    const cleanPath = lecture.video_path.replace(/^[./]+/, '');
-    const videoPath = path.join(__dirname, '../../', cleanPath);
+    const cleanPath = lecture.video_path.replace(/^[.\\/]+/, '');
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    videoPath = path.join(uploadsDir, cleanPath);
     
-    console.log('Looking for video at path:', videoPath);
+    console.log(`[${requestId}] Resolved video path:`, videoPath);
+    console.log(`[${requestId}] Current working directory:`, process.cwd());
+    console.log(`[${requestId}] Uploads directory exists:`, fs.existsSync(uploadsDir));
     
     // Check if file exists and is accessible
     try {
+      console.log(`[${requestId}] Checking file access...`);
       const stats = fs.statSync(videoPath);
-      console.log('Video file found. Size:', stats.size, 'bytes');
-      console.log('File permissions:', {
-        readable: fs.constants.R_OK ? 'readable' : 'not readable',
-        writable: fs.constants.W_OK ? 'writable' : 'not writable',
-        executable: fs.constants.X_OK ? 'executable' : 'not executable'
+      console.log(`[${requestId}] Video file found. Size: ${stats.size} bytes`);
+      
+      // Check read permissions
+      fs.accessSync(videoPath, fs.constants.R_OK);
+      console.log(`[${requestId}] File is readable`);
+      
+      // Log file details
+      console.log(`[${requestId}] File details:`, {
+        path: videoPath,
+        exists: fs.existsSync(videoPath),
+        isFile: stats.isFile(),
+        size: stats.size,
+        permissions: {
+          read: !fs.accessSync(videoPath, fs.constants.R_OK | fs.constants.W_OK),
+          write: !fs.accessSync(videoPath, fs.constants.W_OK)
+        }
       });
       
-      // Try to open the file to check read permissions
-      const fd = fs.openSync(videoPath, 'r');
-      fs.closeSync(fd);
-      
-      console.log('Successfully opened video file for reading');
     } catch (err) {
-      console.error('Error accessing video file:', err);
-      if (err.code === 'ENOENT') {
-        console.error('File does not exist at path:', videoPath);
-      } else if (err.code === 'EACCES') {
-        console.error('Permission denied when trying to access file');
-      } else if (err.code === 'EBUSY') {
-        console.error('File is busy or locked by another process');
-      }
-      console.log('Current working directory:', process.cwd());
-      console.log('__dirname:', __dirname);
-      console.log('Attempted full path:', videoPath);
+      console.error(`[${requestId}] Error accessing video file:`, {
+        code: err.code,
+        message: err.message,
+        path: videoPath,
+        cwd: process.cwd(),
+        dirExists: fs.existsSync(path.dirname(videoPath)),
+        fileExists: fs.existsSync(videoPath)
+      });
       
       // List directory contents to help debug
       const dir = path.dirname(videoPath);
-      try {
-        console.log('Directory contents:', fs.readdirSync(dir));
-      } catch (dirErr) {
-        console.error('Error reading directory:', dir, dirErr);
+      if (fs.existsSync(dir)) {
+        try {
+          console.log(`[${requestId}] Directory contents (${dir}):`, fs.readdirSync(dir));
+        } catch (dirErr) {
+          console.error(`[${requestId}] Error reading directory:`, dir, dirErr);
+        }
+      } else {
+        console.error(`[${requestId}] Directory does not exist:`, dir);
       }
       
-      throw new NotFoundError('Video file not accessible: ' + (err.message || 'Unknown error'));
+      const error = new Error(`Video file not accessible: ${err.message}`);
+      error.status = 404;
+      throw error;
     }
 
     const stat = fs.statSync(videoPath);
     const fileSize = stat.size;
     const range = req.headers.range;
 
-    // Log request details
-    console.log('Range header:', range);
-    console.log('Video path:', videoPath);
-    console.log('File size:', fileSize, 'bytes');
+    console.log(`[${requestId}] Request details:`, {
+      rangeHeader: range,
+      videoPath,
+      fileSize: `${fileSize} bytes`,
+      contentType: 'video/mp4'
+    });
+    
+    // Set common headers
+    const headers = {
+      'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'Content-Range, Content-Length',
+      'Content-Disposition': 'inline',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Length': fileSize
+    };
     
     // Handle range requests for video streaming
     if (range) {
@@ -351,48 +397,62 @@ router.get('/lecture/:id', authenticateToken, async (req, res, next) => {
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunkSize = (end - start) + 1;
       
-      console.log(`Streaming chunk: ${start}-${end}/${fileSize} (${chunkSize} bytes)`);
+      console.log(`[${requestId}] Streaming chunk: ${start}-${end}/${fileSize} (${chunkSize} bytes)`);
       
-      const file = fs.createReadStream(videoPath, { start, end });
+      // Update headers for partial content
+      headers['Content-Range'] = `bytes ${start}-${end}/${fileSize}`;
+      headers['Content-Length'] = chunkSize;
       
-      const headers = {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': 'video/mp4',
-        'Cache-Control': 'no-cache, no-store, must-revalidate, no-transform',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Range',
-        'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
-        'Connection': 'keep-alive',
-        'Content-Disposition': 'inline',
-        'X-Content-Type-Options': 'nosniff'
-      };
-      
-      console.log('Sending 206 Partial Content with headers:', headers);
       res.writeHead(206, headers);
       
-      file.pipe(res);
-    } else {
-      // If no range header, send the first chunk
-      const head = {
-        'Content-Length': fileSize,
-        'Content-Type': 'video/mp4',
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'no-cache, no-transform',
-        'Connection': 'keep-alive',
-        'Content-Disposition': 'inline',
-        'X-Content-Type-Options': 'nosniff'
-      };
+      // Create read stream for the requested range
+      const fileStream = fs.createReadStream(videoPath, { start, end });
       
-      console.log('Sending 200 OK with headers:', head);
-      res.writeHead(200, head);
-      fs.createReadStream(videoPath).pipe(res);
+      // Handle stream errors
+      fileStream.on('error', (streamErr) => {
+        console.error(`[${requestId}] Stream error:`, streamErr);
+        if (!res.headersSent) {
+          res.status(500).send('Error streaming video');
+        }
+      });
+      
+      // Pipe the file stream to the response
+      fileStream.pipe(res);
+      
+    } else {
+      // If no range header, send the entire file
+      console.log(`[${requestId}] No range header, sending full file`);
+      res.writeHead(200, headers);
+      
+      const fileStream = fs.createReadStream(videoPath);
+      
+      fileStream.on('error', (streamErr) => {
+        console.error(`[${requestId}] Stream error:`, streamErr);
+        if (!res.headersSent) {
+          res.status(500).send('Error streaming video');
+        }
+      });
+      
+      fileStream.pipe(res);
     }
+    
+    console.log(`[${requestId}] Streaming started successfully`);
+    
   } catch (error) {
-    next(error);
+    console.error(`[${requestId}] Error in video streaming:`, {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      path: videoPath
+    });
+    
+    if (!res.headersSent) {
+      const status = error.status || 500;
+      res.status(status).json({
+        error: error.message || 'Error streaming video',
+        requestId
+      });
+    }
   }
 });
 

@@ -72,12 +72,31 @@ app.use(cors({
   credentials: true
 }));
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 // Compression middleware
 app.use(compression());
+
+// Skip body parsing for multipart/form-data
+const shouldParseBody = (req) => {
+  const contentType = req.headers['content-type'] || '';
+  return !contentType.startsWith('multipart/form-data');
+};
+
+// Only apply JSON and URL-encoded body parsing to non-multipart requests
+app.use((req, res, next) => {
+  if (shouldParseBody(req)) {
+    express.json({ limit: '10mb' })(req, res, next);
+  } else {
+    next();
+  }
+});
+
+app.use((req, res, next) => {
+  if (shouldParseBody(req)) {
+    express.urlencoded({ extended: true, limit: '10mb' })(req, res, next);
+  } else {
+    next();
+  }
+});
 
 // Logging middleware
 app.use(morgan('combined'));
