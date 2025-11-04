@@ -1,32 +1,14 @@
 import express from 'express';
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { authenticateToken, authorize } from '../middleware/auth.js';
 import { ValidationError, NotFoundError } from '../middleware/errorHandler.js';
-import { body } from 'express-validator';
+import { uploadToS3, streamFileFromS3, deleteFromS3 } from '../utils/s3Client.js';
 
 const router = express.Router();
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const tenantId = req.tenantId;
-    const uploadPath = path.join(process.cwd(), 'uploads', tenantId);
-    
-    // Create tenant-specific directory if it doesn't exist
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = `${uuidv4()}-${file.originalname}`;
-    cb(null, uniqueName);
-  }
-});
+// Configure multer for memory storage (file will be in memory before uploading to S3)
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   // Define allowed video MIME types
@@ -54,643 +36,101 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024 // 10MB default
+    fileSize: 1024 * 1024 * 500, // 500MB limit
   }
 });
 
-// Upload single file
-router.post('/single', authenticateToken, upload.single('file'), async (req, res, next) => {
+// Upload lecture video
+router.post('/lecture', [
+  authenticateToken,
+  authorize(['admin', 'instructor']),
+  upload.single('video')
+], async (req, res, next) => {
+  if (!req.file) {
+    return next(new ValidationError('No file uploaded'));
+  }
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
-    }
-
-    const { relatedEntityType, relatedEntityId, isPublic = false } = req.body;
+    // Upload video to S3
+    const s3Key = `lectures/${uuidv4()}`;
+    const videoUrl = await uploadToS3(req.file, s3Key);
+    // Save video metadata to database
     const { id: userId } = req.user;
     const tenantPool = req.tenantPool;
-
-    // Save file metadata to database
     const result = await tenantPool.query(
-      `INSERT INTO file_uploads (filename, original_name, file_path, file_size, mime_type, uploaded_by, related_entity_type, related_entity_id, is_public)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO lectures (video_url, uploaded_by)
+       VALUES ($1, $2)
        RETURNING *`,
       [
-        req.file.filename,
-        req.file.originalname,
-        req.file.path,
-        req.file.size,
-        req.file.mimetype,
-        userId,
-        relatedEntityType,
-        relatedEntityId,
-        isPublic
+        videoUrl,
+        userId
       ]
     );
-
     res.status(201).json({
-      message: 'File uploaded successfully',
-      file: {
+      message: 'Lecture video uploaded successfully',
+      video: {
         id: result.rows[0].id,
-        filename: result.rows[0].filename,
-        originalName: result.rows[0].original_name,
-        fileSize: result.rows[0].file_size,
-        mimeType: result.rows[0].mime_type,
-        isPublic: result.rows[0].is_public,
+        videoUrl: result.rows[0].video_url,
         uploadedAt: result.rows[0].created_at
       }
     });
   } catch (error) {
-    // Clean up uploaded file if database operation fails
-    if (req.file) {
-      fs.unlink(req.file.path, (err) => {
-        if (err) console.error('Error deleting file:', err);
-      });
-    }
     next(error);
   }
 });
 
-// Upload multiple files
-router.post('/multiple', authenticateToken, upload.array('files', 10), async (req, res, next) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ message: 'No files uploaded' });
-    }
-
-    const { relatedEntityType, relatedEntityId, isPublic = false } = req.body;
-    const { id: userId } = req.user;
-    const tenantPool = req.tenantPool;
-
-    const uploadedFiles = [];
-
-    for (const file of req.files) {
-      try {
-        const result = await tenantPool.query(
-          `INSERT INTO file_uploads (filename, original_name, file_path, file_size, mime_type, uploaded_by, related_entity_type, related_entity_id, is_public)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           RETURNING *`,
-          [
-            file.filename,
-            file.originalname,
-            file.path,
-            file.size,
-            file.mimetype,
-            userId,
-            relatedEntityType,
-            relatedEntityId,
-            isPublic
-          ]
-        );
-
-        uploadedFiles.push({
-          id: result.rows[0].id,
-          filename: result.rows[0].filename,
-          originalName: result.rows[0].original_name,
-          fileSize: result.rows[0].file_size,
-          mimeType: result.rows[0].mime_type,
-          isPublic: result.rows[0].is_public,
-          uploadedAt: result.rows[0].created_at
-        });
-      } catch (error) {
-        // Clean up file if database operation fails
-        fs.unlink(file.path, (err) => {
-          if (err) console.error('Error deleting file:', err);
-        });
-        throw error;
-      }
-    }
-
-    res.status(201).json({
-      message: 'Files uploaded successfully',
-      files: uploadedFiles,
-      count: uploadedFiles.length
-    });
-  } catch (error) {
-    // Clean up all uploaded files if any operation fails
-    if (req.files) {
-      req.files.forEach(file => {
-        fs.unlink(file.path, (err) => {
-          if (err) console.error('Error deleting file:', err);
-        });
-      });
-    }
-    next(error);
-  }
-});
-
-// Get files for entity
-router.get('/entity/:entityType/:entityId', authenticateToken, async (req, res, next) => {
-  try {
-    const { entityType, entityId } = req.params;
-    const { role, id: userId } = req.user;
-    const tenantPool = req.tenantPool;
-
-    let query, params;
-
-    if (role === 'student') {
-      // Students can only see public files or files they uploaded
-      query = `
-        SELECT f.*, u.name as uploaded_by_name
-        FROM file_uploads f
-        LEFT JOIN users u ON f.uploaded_by = u.id
-        WHERE f.related_entity_type = $1 AND f.related_entity_id = $2 
-        AND (f.is_public = true OR f.uploaded_by = $3)
-        ORDER BY f.created_at DESC
-      `;
-      params = [entityType, entityId, userId];
-    } else {
-      // Teachers and admins can see all files
-      query = `
-        SELECT f.*, u.name as uploaded_by_name
-        FROM file_uploads f
-        LEFT JOIN users u ON f.uploaded_by = u.id
-        WHERE f.related_entity_type = $1 AND f.related_entity_id = $2
-        ORDER BY f.created_at DESC
-      `;
-      params = [entityType, entityId];
-    }
-
-    const result = await tenantPool.query(query, params);
-
-    res.json({
-      files: result.rows
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Get file by ID
-router.get('/:id', authenticateToken, async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { role, id: userId } = req.user;
-    const tenantPool = req.tenantPool;
-
-    let query, params;
-
-    if (role === 'student') {
-      // Students can only see public files or files they uploaded
-      query = `
-        SELECT f.*, u.name as uploaded_by_name
-        FROM file_uploads f
-        LEFT JOIN users u ON f.uploaded_by = u.id
-        WHERE f.id = $1 AND (f.is_public = true OR f.uploaded_by = $2)
-      `;
-      params = [id, userId];
-    } else {
-      // Teachers and admins can see all files
-      query = `
-        SELECT f.*, u.name as uploaded_by_name
-        FROM file_uploads f
-        LEFT JOIN users u ON f.uploaded_by = u.id
-        WHERE f.id = $1
-      `;
-      params = [id];
-    }
-
-    const result = await tenantPool.query(query, params);
-
-    if (result.rows.length === 0) {
-      throw new NotFoundError('File not found');
-    }
-
-    res.json({
-      file: result.rows[0]
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Stream lecture video
+// Get lecture video
 router.get('/lecture/:id', authenticateToken, async (req, res, next) => {
   const requestId = Date.now();
   console.log(`\n=== New Video Stream Request [${requestId}] ===`);
   console.log(`[${requestId}] Request URL:`, req.originalUrl);
   console.log(`[${requestId}] Method:`, req.method);
-  console.log(`[${requestId}] Headers:`, JSON.stringify(req.headers, null, 2));
-  console.log(`[${requestId}] User:`, req.user);
   
-  let videoPath = '';
+  const range = req.headers.range;
   
   try {
     // Remove .mp4 extension if present in the ID
     const lectureId = req.params.id.replace(/\.mp4$/i, '');
     console.log(`[${requestId}] Cleaned lecture ID:`, lectureId);
     
-    const { role, id: userId } = req.user;
-    const tenantPool = req.tenantPool;
-
-    console.log(`[${requestId}] Fetching lecture details for ID:`, lectureId);
+    // Construct the S3 key based on your storage structure
+    const s3Key = `lectures/${lectureId}`;
     
-    // Get lecture details including the video path
-    const result = await tenantPool.query(
-      'SELECT id, video_path, title FROM lectures WHERE id = $1',
-      [lectureId]
-    );
-
-    if (result.rows.length === 0) {
-      const error = new Error('Lecture not found');
-      error.status = 404;
-      throw error;
-    }
-
-    const lecture = result.rows[0];
-    console.log(`[${requestId}] Found lecture:`, { 
-      id: lecture.id, 
-      title: lecture.title,
-      video_path: lecture.video_path 
-    });
-    
-    if (!lecture.video_path) {
-      throw new Error('No video path found for this lecture');
-    }
-    
-    // Clean up the video path (remove any leading slashes or dots)
-    const cleanPath = lecture.video_path.replace(/^[.\\/]+/, '');
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    videoPath = path.join(uploadsDir, cleanPath);
-    
-    console.log(`[${requestId}] Resolved video path:`, videoPath);
-    console.log(`[${requestId}] Current working directory:`, process.cwd());
-    console.log(`[${requestId}] Uploads directory exists:`, fs.existsSync(uploadsDir));
-    
-    // Check if file exists and is accessible
-    try {
-      console.log(`[${requestId}] Checking file access...`);
-      const stats = fs.statSync(videoPath);
-      console.log(`[${requestId}] Video file found. Size: ${stats.size} bytes`);
-      
-      // Check read permissions
-      fs.accessSync(videoPath, fs.constants.R_OK);
-      console.log(`[${requestId}] File is readable`);
-      
-      // Log file details
-      console.log(`[${requestId}] File details:`, {
-        path: videoPath,
-        exists: fs.existsSync(videoPath),
-        isFile: stats.isFile(),
-        size: stats.size,
-        permissions: {
-          read: !fs.accessSync(videoPath, fs.constants.R_OK | fs.constants.W_OK),
-          write: !fs.accessSync(videoPath, fs.constants.W_OK)
-        }
-      });
-      
-    } catch (err) {
-      console.error(`[${requestId}] Error accessing video file:`, {
-        code: err.code,
-        message: err.message,
-        path: videoPath,
-        cwd: process.cwd(),
-        dirExists: fs.existsSync(path.dirname(videoPath)),
-        fileExists: fs.existsSync(videoPath)
-      });
-      
-      // List directory contents to help debug
-      const dir = path.dirname(videoPath);
-      if (fs.existsSync(dir)) {
-        try {
-          console.log(`[${requestId}] Directory contents (${dir}):`, fs.readdirSync(dir));
-        } catch (dirErr) {
-          console.error(`[${requestId}] Error reading directory:`, dir, dirErr);
-        }
-      } else {
-        console.error(`[${requestId}] Directory does not exist:`, dir);
-      }
-      
-      const error = new Error(`Video file not accessible: ${err.message}`);
-      error.status = 404;
-      throw error;
-    }
-
-    const stat = fs.statSync(videoPath);
-    const fileSize = stat.size;
-    const range = req.headers.range;
-
-    console.log(`[${requestId}] Request details:`, {
-      rangeHeader: range,
-      videoPath,
-      fileSize: `${fileSize} bytes`,
-      contentType: 'video/mp4'
-    });
-    
-    // Set common headers
-    const headers = {
-      'Content-Type': 'video/mp4',
-      'Accept-Ranges': 'bytes',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Expose-Headers': 'Content-Range, Content-Length',
-      'Content-Disposition': 'inline',
-      'X-Content-Type-Options': 'nosniff',
-      'Content-Length': fileSize
-    };
-    
-    // Handle range requests for video streaming
-    if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunkSize = (end - start) + 1;
-      
-      console.log(`[${requestId}] Streaming chunk: ${start}-${end}/${fileSize} (${chunkSize} bytes)`);
-      
-      // Update headers for partial content
-      headers['Content-Range'] = `bytes ${start}-${end}/${fileSize}`;
-      headers['Content-Length'] = chunkSize;
-      
-      res.writeHead(206, headers);
-      
-      // Create read stream for the requested range
-      const fileStream = fs.createReadStream(videoPath, { start, end });
-      
-      // Handle stream errors
-      fileStream.on('error', (streamErr) => {
-        console.error(`[${requestId}] Stream error:`, streamErr);
-        if (!res.headersSent) {
-          res.status(500).send('Error streaming video');
-        }
-      });
-      
-      // Pipe the file stream to the response
-      fileStream.pipe(res);
-      
-    } else {
-      // If no range header, send the entire file
-      console.log(`[${requestId}] No range header, sending full file`);
-      res.writeHead(200, headers);
-      
-      const fileStream = fs.createReadStream(videoPath);
-      
-      fileStream.on('error', (streamErr) => {
-        console.error(`[${requestId}] Stream error:`, streamErr);
-        if (!res.headersSent) {
-          res.status(500).send('Error streaming video');
-        }
-      });
-      
-      fileStream.pipe(res);
-    }
-    
-    console.log(`[${requestId}] Streaming started successfully`);
+    // Stream the file directly from S3
+    await streamFileFromS3(s3Key, range, res);
     
   } catch (error) {
-    console.error(`[${requestId}] Error in video streaming:`, {
-      message: error.message,
-      stack: error.stack,
-      code: error.code,
-      path: videoPath
-    });
-    
-    if (!res.headersSent) {
-      const status = error.status || 500;
-      res.status(status).json({
-        error: error.message || 'Error streaming video',
-        requestId
-      });
+    console.error(`[${requestId}] Error in video streaming:`, error);
+    if (error.name === 'NoSuchKey') {
+      return next(new NotFoundError('Lecture video not found'));
     }
-  }
-});
-
-// Serve file with support for video streaming
-router.get('/:id/stream', authenticateToken, async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { role, id: userId } = req.user;
-    const tenantPool = req.tenantPool;
-
-    let query, params;
-
-    if (role === 'student') {
-      // Students can only access public files or files they uploaded
-      query = 'SELECT * FROM file_uploads WHERE id = $1 AND (is_public = true OR uploaded_by = $2)';
-      params = [id, userId];
-    } else {
-      // Teachers and admins can access all files
-      query = 'SELECT * FROM file_uploads WHERE id = $1';
-      params = [id];
-    }
-
-    const result = await tenantPool.query(query, params);
-
-    if (result.rows.length === 0) {
-      throw new NotFoundError('File not found');
-    }
-
-    const file = result.rows[0];
-    const filePath = file.file_path;
-
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
-      throw new NotFoundError('File not found on disk');
-    }
-
-    const stat = fs.statSync(filePath);
-    const fileSize = stat.size;
-    const range = req.headers.range;
-
-    // Set appropriate content type
-    const mimeType = file.mime_type || 'application/octet-stream';
-    
-    if (mimeType.startsWith('video/') || mimeType.startsWith('audio/')) {
-      // Handle video/audio streaming with range requests
-      if (range) {
-        const parts = range.replace(/bytes=/, "").split("-");
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-        const chunkSize = (end - start) + 1;
-        
-        const fileStream = fs.createReadStream(filePath, { start, end });
-        
-        res.writeHead(206, {
-          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': chunkSize,
-          'Content-Type': mimeType,
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        });
-        
-        fileStream.pipe(res);
-      } else {
-        // If no range header, send the first chunk
-        const head = {
-          'Content-Length': fileSize,
-          'Content-Type': mimeType,
-          'Accept-Ranges': 'bytes',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        };
-        
-        res.writeHead(200, head);
-        fs.createReadStream(filePath).pipe(res);
-      }
-    } else {
-      // For non-media files, use standard download
-      res.setHeader('Content-Disposition', `inline; filename="${file.original_name}"`);
-      res.setHeader('Content-Type', mimeType);
-      res.setHeader('Content-Length', fileSize);
-      
-      const fileStream = fs.createReadStream(filePath);
-      fileStream.pipe(res);
-      
-      fileStream.on('error', (error) => {
-        console.error('Error streaming file:', error);
-        if (!res.headersSent) {
-          res.status(500).json({ message: 'Error streaming file' });
-        }
-      });
-    }
-  } catch (error) {
-    next(error);
-  }
-    });
-
-    // Delete file endpoint
-    router.delete('/:id', authenticateToken, async (req, res, next) => {
-      try {
-        const { id } = req.params;
-        const { role, id: userId } = req.user;
-        const tenantPool = req.tenantPool;
-        
-        let query, params;
-        if (role === 'student') {
-          // Students can only delete their own files
-          query = 'SELECT * FROM file_uploads WHERE id = $1 AND uploaded_by = $2';
-          params = [id, userId];
-        } else {
-          // Teachers and admins can delete any file
-          query = 'SELECT * FROM file_uploads WHERE id = $1';
-          params = [id];
-        }
-
-        const result = await tenantPool.query(query, params);
-
-        if (result.rows.length === 0) {
-          throw new NotFoundError('File not found or access denied');
-        }
-
-        const file = result.rows[0];
-
-        // Delete file from disk
-        if (fs.existsSync(file.file_path)) {
-          fs.unlink(file.file_path, (err) => {
-            if (err) console.error('Error deleting file from disk:', err);
-          });
-        }
-
-        // Delete file record from database
-        await tenantPool.query('DELETE FROM file_uploads WHERE id = $1', [id]);
-
-        res.json({
-          message: 'File deleted successfully'
-        });
-      } catch (error) {
-        next(error);
-      }
-    });
-
-// Update file metadata
-router.put('/:id', [
-  body('isPublic').optional().isBoolean().withMessage('Public status must be boolean')
-], authenticateToken, async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { isPublic } = req.body;
-    const { role, id: userId } = req.user;
-    const tenantPool = req.tenantPool;
-
-    // Check if file exists and user has permission to update
-    let query, params;
-    if (role === 'student') {
-      // Students can only update files they uploaded
-      query = 'SELECT id FROM file_uploads WHERE id = $1 AND uploaded_by = $2';
-      params = [id, userId];
-    } else {
-      // Teachers and admins can update any file
-      query = 'SELECT id FROM file_uploads WHERE id = $1';
-      params = [id];
-    }
-
-    const result = await tenantPool.query(query, params);
-
-    if (result.rows.length === 0) {
-      throw new NotFoundError('File not found or access denied');
-    }
-
-    // Update file metadata
-    const updateFields = [];
-    const values = [];
-    let paramCount = 1;
-
-    if (isPublic !== undefined) {
-      updateFields.push(`is_public = $${paramCount}`);
-      values.push(isPublic);
-      paramCount++;
-    }
-
-    if (updateFields.length === 0) {
-      return res.status(400).json({ message: 'No fields to update' });
-    }
-
-    values.push(id);
-
-    const updateResult = await tenantPool.query(
-      `UPDATE file_uploads SET ${updateFields.join(', ')} WHERE id = $${paramCount} RETURNING *`,
-      values
-    );
-
-    res.json({
-      message: 'File updated successfully',
-      file: updateResult.rows[0]
-    });
-  } catch (error) {
     next(error);
   }
 });
 
-// Get upload statistics
-router.get('/stats', authenticateToken, authorize('admin', 'teacher'), async (req, res, next) => {
+// Delete lecture video
+router.delete('/lecture/:id', authenticateToken, authorize(['admin', 'instructor']), async (req, res, next) => {
   try {
+    const lectureId = req.params.id;
+    const s3Key = `lectures/${lectureId}`;
+    
+    // Delete from S3
+    await deleteFromS3(s3Key);
+    
+    // Delete from database if needed
     const tenantPool = req.tenantPool;
-
-    const statsResult = await tenantPool.query(
-      `SELECT 
-         COUNT(*) as total_files,
-         SUM(file_size) as total_size,
-         COUNT(CASE WHEN is_public = true THEN 1 END) as public_files,
-         COUNT(CASE WHEN mime_type LIKE 'image/%' THEN 1 END) as image_files,
-         COUNT(CASE WHEN mime_type LIKE 'application/pdf' THEN 1 END) as pdf_files,
-         COUNT(CASE WHEN mime_type LIKE 'video/%' THEN 1 END) as video_files,
-         COUNT(CASE WHEN mime_type LIKE 'audio/%' THEN 1 END) as audio_files
-       FROM file_uploads`
-    );
-
-    const typeStatsResult = await tenantPool.query(
-      `SELECT 
-         related_entity_type,
-         COUNT(*) as count,
-         SUM(file_size) as total_size
-       FROM file_uploads 
-       GROUP BY related_entity_type
-       ORDER BY count DESC`
-    );
-
-    res.json({
-      stats: statsResult.rows[0],
-      typeDistribution: typeStatsResult.rows
+    await tenantPool.query('DELETE FROM lectures WHERE id = $1', [lectureId]);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Lecture video deleted successfully'
     });
   } catch (error) {
+    console.error('Error deleting lecture video:', error);
     next(error);
   }
 });
 
 export default router;
-
 
 
 
