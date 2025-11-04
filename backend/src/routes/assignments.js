@@ -2,8 +2,36 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { authenticateToken, authorize, canAccessResource } from '../middleware/auth.js';
 import { ValidationError, NotFoundError, ForbiddenError } from '../middleware/errorHandler.js';
+import { uploadFile } from '../utils/fileUpload.js';
+import { uploadToS3 } from '../utils/s3Client.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
+
+// Get teacher's courses for assignment creation
+router.get('/teacher/courses', authenticateToken, authorize('teacher', 'admin'), async (req, res, next) => {
+  try {
+    const { id: userId } = req.user;
+    const tenantPool = req.tenantPool;
+
+    const result = await tenantPool.query(
+      `SELECT c.id, c.title, c.course_code as code 
+       FROM courses c
+       JOIN teachers t ON c.teacher_id = t.id
+       WHERE t.user_id = $1
+       ORDER BY c.created_at DESC`,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      courses: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching teacher courses:', error);
+    next(error);
+  }
+});
 
 // Get all assignments
 router.get('/', authenticateToken, async (req, res, next) => {
@@ -311,74 +339,6 @@ router.delete('/:id', authenticateToken, authorize('admin', 'teacher'), async (r
   }
 });
 
-// Submit assignment
-router.post('/:id/submit', [
-  body('submissionText').optional().isLength({ max: 10000 }).withMessage('Submission text must be less than 10000 characters')
-], authenticateToken, authorize('student'), async (req, res, next) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      throw new ValidationError(errors.array()[0].msg);
-    }
-
-    const { id: assignmentId } = req.params;
-    const { submissionText, attachments } = req.body;
-    const { id: userId } = req.user;
-    const tenantPool = req.tenantPool;
-
-    // Get student ID
-    const studentResult = await tenantPool.query(
-      'SELECT id FROM students WHERE user_id = $1',
-      [userId]
-    );
-
-    if (studentResult.rows.length === 0) {
-      throw new NotFoundError('Student profile not found');
-    }
-
-    const studentId = studentResult.rows[0].id;
-
-    // Check if assignment exists and is published
-    const assignmentResult = await tenantPool.query(
-      'SELECT * FROM assignments WHERE id = $1 AND is_published = true',
-      [assignmentId]
-    );
-
-    if (assignmentResult.rows.length === 0) {
-      throw new NotFoundError('Assignment not found or not published');
-    }
-
-    const assignment = assignmentResult.rows[0];
-
-    // Check if already submitted
-    const existingSubmission = await tenantPool.query(
-      'SELECT id FROM assignment_submissions WHERE assignment_id = $1 AND student_id = $2',
-      [assignmentId, studentId]
-    );
-
-    if (existingSubmission.rows.length > 0) {
-      return res.status(409).json({ message: 'Assignment already submitted' });
-    }
-
-    // Check if due date has passed
-    const isLate = assignment.due_date && new Date() > new Date(assignment.due_date);
-
-    // Create submission
-    const result = await tenantPool.query(
-      `INSERT INTO assignment_submissions (assignment_id, student_id, submission_text, attachments, is_late)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [assignmentId, studentId, submissionText, attachments || null, isLate]
-    );
-
-    res.status(201).json({
-      message: 'Assignment submitted successfully',
-      submission: result.rows[0]
-    });
-  } catch (error) {
-    next(error);
-  }
-});
 
 // Get assignment submissions
 router.get('/:id/submissions', authenticateToken, authorize('admin', 'teacher'), async (req, res, next) => {

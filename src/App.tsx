@@ -14,6 +14,7 @@ import Courses from "./pages/Courses";
 import LecturesListPage from "./pages/LecturesListPage";
 import LecturePlayerPage from "./pages/LecturePlayerPage";
 import Assignments from "./pages/Assignments";
+import CreateAssignment from "./pages/CreateAssignment";
 import CourseForm from "./pages/CourseForm";
 import Quizzes from "./pages/Quizzes";
 import Grades from "./pages/Grades";
@@ -40,6 +41,7 @@ const App = () => (
             <Route path="/courses/:courseId/lectures" element={<ProtectedRoute><Layout><LecturesListPage /></Layout></ProtectedRoute>} />
             <Route path="/courses/:courseId/lectures/:lectureId" element={<ProtectedRoute><Layout><LecturePlayerPage /></Layout></ProtectedRoute>} />
             <Route path="/assignments" element={<ProtectedRoute><Layout><Assignments /></Layout></ProtectedRoute>} />
+            <Route path="/assignments/create" element={<ProtectedRoute><Layout><CreateAssignment /></Layout></ProtectedRoute>} />
             <Route path="/quizzes" element={<ProtectedRoute><Layout><Quizzes /></Layout></ProtectedRoute>} />
             <Route path="/grades" element={<ProtectedRoute><Layout><Grades /></Layout></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><Layout><Notifications /></Layout></ProtectedRoute>} />
