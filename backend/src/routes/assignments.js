@@ -133,59 +133,83 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
 });
 
 // Create assignment
-router.post('/', [
-  body('courseId').isUUID().withMessage('Valid course ID required'),
-  body('title').isLength({ min: 3, max: 200 }).withMessage('Title must be 3-200 characters'),
-  body('description').optional().isLength({ max: 2000 }).withMessage('Description must be less than 2000 characters'),
-  body('dueDate').optional().isISO8601().withMessage('Valid due date required'),
-  body('maxPoints').optional().isInt({ min: 1, max: 1000 }).withMessage('Max points must be 1-1000'),
-  body('assignmentType').optional().isIn(['homework', 'project', 'essay', 'lab']).withMessage('Invalid assignment type'),
-  body('instructions').optional().isLength({ max: 5000 }).withMessage('Instructions must be less than 5000 characters')
-], authenticateToken, authorize('admin', 'teacher'), async (req, res, next) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      throw new ValidationError(errors.array()[0].msg);
+router.post('/', 
+  authenticateToken, 
+  authorize('admin', 'teacher'), 
+  uploadFile('file'),
+  [
+    body('courseId').isUUID().withMessage('Valid course ID required'),
+    body('title').isLength({ min: 3, max: 200 }).withMessage('Title must be 3-200 characters'),
+    body('description').optional().isLength({ max: 2000 }).withMessage('Description must be less than 2000 characters'),
+    body('dueDate').optional().isISO8601().withMessage('Valid due date required'),
+    body('maxPoints').optional().isInt({ min: 1, max: 1000 }).withMessage('Max points must be 1-1000'),
+    body('assignmentType').optional().isIn(['homework', 'project', 'essay', 'lab']).withMessage('Invalid assignment type'),
+    body('instructions').optional().isLength({ max: 5000 }).withMessage('Instructions must be less than 5000 characters')
+  ],
+  async (req, res, next) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        throw new ValidationError(errors.array()[0].msg);
+      }
+
+      const { courseId, title, description, dueDate, maxPoints, assignmentType, instructions } = req.body;
+      const { id: userId, role } = req.user;
+      const tenantPool = req.tenantPool;
+
+      // Check if course exists and user has access
+      let courseQuery, courseParams;
+      if (role === 'teacher') {
+        courseQuery = `
+          SELECT c.* FROM courses c
+          JOIN teachers t ON c.teacher_id = t.id
+          WHERE c.id = $1 AND t.user_id = $2 AND c.is_active = true
+        `;
+        courseParams = [courseId, userId];
+      } else {
+        courseQuery = 'SELECT * FROM courses WHERE id = $1 AND is_active = true';
+        courseParams = [courseId];
+      }
+
+      const courseResult = await tenantPool.query(courseQuery, courseParams);
+      if (courseResult.rows.length === 0) {
+        throw new NotFoundError('Course not found or access denied');
+      }
+
+      // Handle file upload if present
+      let attachmentUrl = null;
+      if (req.file) {
+        try {
+          // Upload to S3 or store file path
+          const fileKey = `assignments/${uuidv4()}_${req.file.originalname}`;
+          if (process.env.USE_S3 === 'true') {
+            attachmentUrl = await uploadToS3(req.file.buffer, fileKey, req.file.mimetype);
+          } else {
+            // Store file path for local storage
+            attachmentUrl = `/uploads/assignments/${req.file.filename}`;
+          }
+        } catch (uploadError) {
+          console.error('File upload error:', uploadError);
+          throw new Error('Failed to upload file');
+        }
+      }
+
+      const result = await tenantPool.query(
+        `INSERT INTO assignments (course_id, title, description, due_date, max_points, assignment_type, instructions, attachment_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [courseId, title, description, dueDate, maxPoints || 100, assignmentType || 'homework', instructions, attachmentUrl]
+      );
+
+      res.status(201).json({
+        message: 'Assignment created successfully',
+        assignment: result.rows[0]
+      });
+    } catch (error) {
+      next(error);
     }
-
-    const { courseId, title, description, dueDate, maxPoints, assignmentType, instructions } = req.body;
-    const { id: userId, role } = req.user;
-    const tenantPool = req.tenantPool;
-
-    // Check if course exists and user has access
-    let courseQuery, courseParams;
-    if (role === 'teacher') {
-      courseQuery = `
-        SELECT c.* FROM courses c
-        JOIN teachers t ON c.teacher_id = t.id
-        WHERE c.id = $1 AND t.user_id = $2 AND c.is_active = true
-      `;
-      courseParams = [courseId, userId];
-    } else {
-      courseQuery = 'SELECT * FROM courses WHERE id = $1 AND is_active = true';
-      courseParams = [courseId];
-    }
-
-    const courseResult = await tenantPool.query(courseQuery, courseParams);
-    if (courseResult.rows.length === 0) {
-      throw new NotFoundError('Course not found or access denied');
-    }
-
-    const result = await tenantPool.query(
-      `INSERT INTO assignments (course_id, title, description, due_date, max_points, assignment_type, instructions)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING *`,
-      [courseId, title, description, dueDate, maxPoints || 100, assignmentType || 'homework', instructions]
-    );
-
-    res.status(201).json({
-      message: 'Assignment created successfully',
-      assignment: result.rows[0]
-    });
-  } catch (error) {
-    next(error);
   }
-});
+);
 
 // Update assignment
 router.put('/:id', [
