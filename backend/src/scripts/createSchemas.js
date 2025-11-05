@@ -202,6 +202,7 @@ const createTenantSchema = async (tenantId, schemaName) => {
         assignment_type VARCHAR(50) DEFAULT 'homework',
         instructions TEXT,
         attachments JSONB,
+        attachment_url TEXT,
         is_published BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

@@ -53,6 +53,19 @@ const migrateExistingTenants = async () => {
         END IF;
       END$$;`);
     await mainPool.query(`CREATE INDEX IF NOT EXISTS idx_courses_branch ON ${schema}.courses(branch_id)`);
+    
+    // Add attachment_url column to assignments table
+    await mainPool.query(`
+      DO $$
+      BEGIN
+        BEGIN
+          ALTER TABLE ${schema}.assignments ADD COLUMN attachment_url TEXT;
+        EXCEPTION WHEN duplicate_column THEN
+          -- already exists
+          NULL;
+        END;
+      END$$;`);
+    
     console.log(`✅ Migrated ${schema}`);
   }
 };
