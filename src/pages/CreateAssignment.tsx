@@ -136,11 +136,7 @@ const CreateAssignment = () => {
         formDataToSend.append('file', formData.attachment);
       }
       
-      const response = await apiClient.post('/assignments', formDataToSend, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await apiClient.postForm('/assignments', formDataToSend);
       
       toast({
         title: "Success",
