@@ -121,6 +121,6 @@ export const courseService = {
   },
 
   async enroll(courseId: string): Promise<void> {
-    return apiClient.post(API_CONFIG.ENDPOINTS.ENROLL(courseId));
+    return apiClient.post(API_CONFIG.ENDPOINTS.ENROLL(courseId), {});
   }
 };

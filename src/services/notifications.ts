@@ -16,6 +16,6 @@ export const notificationService = {
   },
 
   async markAsRead(id: string): Promise<void> {
-    return apiClient.post(API_CONFIG.ENDPOINTS.MARK_READ(id));
+    return apiClient.post(API_CONFIG.ENDPOINTS.MARK_READ(id), {});
   }
 };

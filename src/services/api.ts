@@ -64,48 +64,6 @@ class ApiClient {
     });
   }
 
-  async postForm<T>(
-    endpoint: string, 
-    formData: FormData, 
-    options: Omit<RequestOptions, 'body'> = {}
-  ): Promise<T> {
-    // Create new headers without setting Content-Type
-    // The browser will automatically set it with the correct boundary
-    const headers = new Headers();
-    
-    // Copy other headers if any
-    const { headers: optionsHeaders, ...restOptions } = options;
-    if (optionsHeaders) {
-      if (optionsHeaders instanceof Headers) {
-        // @ts-ignore - Headers.entries() is not in the TypeScript lib yet
-        for (const [key, value] of optionsHeaders.entries()) {
-          if (key.toLowerCase() !== 'content-type' && value) {
-            headers.append(key, value);
-          }
-        }
-      } else if (Array.isArray(optionsHeaders)) {
-        optionsHeaders.forEach(([key, value]) => {
-          if (key.toLowerCase() !== 'content-type' && value) {
-            headers.append(key, String(value));
-          }
-        });
-      } else {
-        Object.entries(optionsHeaders as Record<string, string>).forEach(([key, value]) => {
-          if (key.toLowerCase() !== 'content-type' && value) {
-            headers.append(key, String(value));
-          }
-        });
-      }
-    }
-    
-    return this.request<T>(endpoint, {
-      method: 'POST',
-      body: formData,
-      ...restOptions,
-      headers,
-    });
-  }
-
   async postForm<T>(endpoint: string, formData: FormData, options?: RequestOptions): Promise<T> {
     const { requiresAuth = true, headers = {}, ...restOptions } = options || {};
     const tenantId = (typeof window !== 'undefined') ? localStorage.getItem('tenantId') : null;
